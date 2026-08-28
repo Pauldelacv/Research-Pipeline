@@ -1,0 +1,20 @@
+# Keep the build context small and free of anything sensitive or host-specific.
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.tsbuildinfo
+
+# Secrets must arrive as environment variables, never baked into an image.
+.env
+.env.*
+!.env.example
+
+.git
+.github
+var/
+docs/images
+**/playwright-report
+**/test-results
+**/blob-report
+*.log

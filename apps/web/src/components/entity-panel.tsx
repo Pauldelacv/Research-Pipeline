@@ -2,6 +2,7 @@
 
 import { Button, Input, Meter, Mono, StatusPill, Tabs } from '@/components/ui/primitives';
 import { cn, confidenceTone, formatRelative, formatValue, percent, scoreTone } from '@/lib/format';
+import type { EntityDetail } from '@/lib/api';
 import { useEntity, useReview } from '@/lib/hooks';
 import type { EntityField, ResearchPipelineConfig } from '@frp/schemas';
 import { useState } from 'react';
@@ -15,6 +16,9 @@ import { useState } from 'react';
  * "where did this number come from?" without leaving the row.
  */
 type PanelTab = 'fields' | 'evidence' | 'score' | 'history';
+
+/** Bucket for evidence recorded against the entity rather than one field. */
+const UNATTACHED_EVIDENCE = '__entity__';
 
 export function EntityPanel({
   entityId,
@@ -57,12 +61,10 @@ export function EntityPanel({
     }
   }
 
-  const evidenceByField = new Map<
-    string,
-    typeof detail extends undefined ? never : NonNullable<typeof detail>['evidence']
-  >();
+  // Evidence is grouped by field so each field can show only its own snippets.
+  const evidenceByField = new Map<string, EntityDetail['evidence']>();
   for (const item of detail?.evidence ?? []) {
-    const key = item.entityFieldId ?? '__entity__';
+    const key = item.entityFieldId ?? UNATTACHED_EVIDENCE;
     evidenceByField.set(key, [...(evidenceByField.get(key) ?? []), item]);
   }
 

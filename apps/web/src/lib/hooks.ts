@@ -39,11 +39,21 @@ export const useRuns = () =>
 export const useRunSources = (runId: string) =>
   useQuery({ queryKey: keys.runSources(runId), queryFn: () => api.runSources(runId) });
 
-export const useEntities = (runId: string, filters: EntityFilters) =>
+/**
+ * Results for a run.
+ *
+ * While the run is still executing, entities keep appearing as the structure
+ * step merges candidates — so the query polls. The SSE handler also invalidates
+ * it on each entity-producing step transition; the poll is the fallback for a
+ * dropped stream. Without either, an operator watching a live run would sit in
+ * front of an empty table long after results existed.
+ */
+export const useEntities = (runId: string, filters: EntityFilters, live = false) =>
   useQuery({
     queryKey: keys.entities(runId, filters),
     queryFn: () => api.entities(runId, filters),
     placeholderData: (previous) => previous,
+    refetchInterval: live ? 4_000 : false,
   });
 
 export const useEntity = (entityId: string | null) =>

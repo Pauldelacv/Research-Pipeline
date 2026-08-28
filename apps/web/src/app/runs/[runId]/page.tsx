@@ -7,6 +7,7 @@ import { RunEvents } from '@/components/run-events';
 import { PageHeader } from '@/components/shell';
 import { Button, Dot, Empty, Mono, Panel, StatusPill, Tabs } from '@/components/ui/primitives';
 import { api } from '@/lib/api';
+import type { ExportRecord } from '@frp/schemas';
 import {
   RUN_STATUS_LABEL,
   RUN_STATUS_TONE,
@@ -232,6 +233,7 @@ export default function RunPage() {
                   config={config}
                   selectedEntityId={selectedEntity}
                   onSelect={setSelectedEntity}
+                  live={isActive}
                 />
               ) : tab === 'sources' ? (
                 <SourcesTable runId={runId} />
@@ -346,13 +348,7 @@ function SourcesTable({ runId }: { runId: string }) {
   );
 }
 
-function ExportsTable({
-  exports,
-}: {
-  exports: ReturnType<typeof useLiveRun>['detail'] extends undefined
-    ? never
-    : NonNullable<ReturnType<typeof useLiveRun>['detail']>['exports'];
-}) {
+function ExportsTable({ exports }: { exports: ExportRecord[] }) {
   if (exports.length === 0) {
     return (
       <Empty

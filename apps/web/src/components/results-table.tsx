@@ -37,11 +37,14 @@ export function ResultsTable({
   config,
   selectedEntityId,
   onSelect,
+  live = false,
 }: {
   runId: string;
   config: ResearchPipelineConfig;
   selectedEntityId: string | null;
   onSelect: (entityId: string) => void;
+  /** True while the run is still producing entities. */
+  live?: boolean;
 }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<EntityStatus | ''>('');
@@ -64,7 +67,7 @@ export function ResultsTable({
     offset,
   };
 
-  const query = useEntities(runId, filters);
+  const query = useEntities(runId, filters, live);
   const bulkReview = useBulkReview(runId);
 
   const tableColumns = useMemo(
@@ -212,11 +215,17 @@ export function ResultsTable({
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
           <Empty
-            title={query.isLoading ? 'Loading results…' : 'No results match these filters'}
+            title={
+              query.isLoading
+                ? 'Loading results…'
+                : live
+                  ? 'No results yet'
+                  : 'No results match these filters'
+            }
             hint={
               query.isLoading
                 ? undefined
-                : 'Entities appear as the structure step merges extracted candidates.'
+                : 'Entities appear as the structure step merges extracted candidates. This view updates as they arrive.'
             }
           />
         ) : (
