@@ -1,0 +1,31 @@
+{
+  "name": "@frp/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "tsx src/scripts/migrate.ts",
+    "reset": "tsx src/scripts/reset.ts",
+    "seed": "tsx src/scripts/seed.ts",
+    "studio": "drizzle-kit studio",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@frp/config": "workspace:*",
+    "@frp/core": "workspace:*",
+    "@frp/schemas": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.6",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.12",
+    "vitest": "^4.1.11"
+  }
+}

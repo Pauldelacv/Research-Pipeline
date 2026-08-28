@@ -1,0 +1,118 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * The target is an internal operations console, not a consumer product: dense
+ * information, thin rules instead of cards, one accent colour, and status
+ * carried by a small fixed palette so an operator learns it once. Type is a
+ * system stack — no webfont fetch at build or run time, which keeps a public
+ * repository buildable behind any network policy.
+ */
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* Surfaces, darkest to lightest. */
+  --color-base: #0a0c0f;
+  --color-surface: #101418;
+  --color-raised: #161b21;
+  --color-overlay: #1b2129;
+
+  /* Hairlines. The UI is built from rules, not shadows. */
+  --color-line: #232a33;
+  --color-line-strong: #333c47;
+
+  --color-ink: #e6eaef;
+  --color-ink-muted: #97a3b2;
+  --color-ink-faint: #64717f;
+
+  --color-accent: #4c9aff;
+  --color-accent-dim: #1d3a63;
+
+  --color-ok: #35c48a;
+  --color-warn: #e5a53f;
+  --color-danger: #f2635b;
+  --color-info: #4c9aff;
+  --color-idle: #6b7684;
+
+  --radius-sm: 2px;
+  --radius-md: 3px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* A faint grid, used behind empty states to read as "instrument", not "blank". */
+.grid-field {
+  background-image:
+    linear-gradient(to right, var(--color-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.35;
+}
+
+/* Tabular numerals keep columns of counts and scores aligned. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border: 2px solid var(--color-base);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #46515e;
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Reduced motion is respected: the only animation is a status pulse. */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pulse {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}

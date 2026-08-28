@@ -1,0 +1,43 @@
+{
+  "name": "field-research-pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A configurable framework for building research and data enrichment pipelines.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "concurrently -n api,worker,web -c cyan,magenta,green \"pnpm dev:api\" \"pnpm dev:worker\" \"pnpm dev:web\"",
+    "dev:api": "tsx watch apps/api/src/index.ts",
+    "dev:worker": "tsx watch apps/worker/src/index.ts",
+    "dev:web": "pnpm --filter @frp/web dev",
+    "build": "pnpm -r --filter \"./apps/*\" build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && pnpm --filter @frp/web typecheck",
+    "test": "pnpm -r --no-bail test",
+    "test:e2e": "pnpm --filter @frp/web test:e2e",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json,yml,yaml,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json,yml,yaml,css}\"",
+    "db:generate": "pnpm --filter @frp/db generate",
+    "db:migrate": "pnpm --filter @frp/db migrate",
+    "db:reset": "pnpm --filter @frp/db reset",
+    "seed": "pnpm --filter @frp/db seed",
+    "stack:up": "docker compose up -d --build",
+    "stack:down": "docker compose down -v",
+    "stack:logs": "docker compose logs -f api worker web"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^22.19.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.23.12",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^4.1.11"
+  }
+}

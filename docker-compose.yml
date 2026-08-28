@@ -1,0 +1,147 @@
+name: field-research-pipeline
+
+# The complete demo stack. `docker compose up` gives a working system with no
+# credentials: the mock providers supply the data, so nothing here reaches the
+# public internet.
+#
+#   web    :3000  operator console
+#   api    :4000  REST + SSE, applies migrations and seeds on boot
+#   worker        executes one pipeline step per queue job
+#   postgres:5432 durable state
+#   redis  :6379  queue + run-event pub/sub
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: frp
+      POSTGRES_PASSWORD: frp
+      POSTGRES_DB: frp
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U frp -d frp']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        SERVICE: api
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://frp:frp@postgres:5432/frp
+      REDIS_URL: redis://redis:6379
+      API_PORT: '4000'
+      API_HOST: 0.0.0.0
+      API_CORS_ORIGIN: http://localhost:3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Absolute so the api and worker resolve the same shared volume.
+      EXPORT_DIR: /data/exports
+      PROVIDER_RESEARCH: ${PROVIDER_RESEARCH:-mock}
+      PROVIDER_SEARCH: ${PROVIDER_SEARCH:-mock}
+      PROVIDER_EXTRACTION: ${PROVIDER_EXTRACTION:-mock}
+      PROVIDER_ENRICHMENT: ${PROVIDER_ENRICHMENT:-mock}
+      MOCK_SEED: ${MOCK_SEED:-field-research}
+      MOCK_LATENCY_MS: ${MOCK_LATENCY_MS:-350}
+      MOCK_FAILURE_RATE: ${MOCK_FAILURE_RATE:-0.04}
+      BRIGHT_DATA_API_KEY: ${BRIGHT_DATA_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+    ports:
+      - '4000:4000'
+    volumes:
+      - exports:/data/exports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # The api owns schema migration and seeding so the stack is usable after a
+    # single `up`, with no second command to remember.
+    command: >
+      sh -c "node dist/migrate.js &&
+             node dist/seed.js &&
+             node dist/index.js"
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        SERVICE: worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://frp:frp@postgres:5432/frp
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      EXPORT_DIR: /data/exports
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      PROVIDER_RESEARCH: ${PROVIDER_RESEARCH:-mock}
+      PROVIDER_SEARCH: ${PROVIDER_SEARCH:-mock}
+      PROVIDER_EXTRACTION: ${PROVIDER_EXTRACTION:-mock}
+      PROVIDER_ENRICHMENT: ${PROVIDER_ENRICHMENT:-mock}
+      MOCK_SEED: ${MOCK_SEED:-field-research}
+      MOCK_LATENCY_MS: ${MOCK_LATENCY_MS:-350}
+      MOCK_FAILURE_RATE: ${MOCK_FAILURE_RATE:-0.04}
+      BRIGHT_DATA_API_KEY: ${BRIGHT_DATA_API_KEY:-}
+      BRIGHT_DATA_SERP_ZONE: ${BRIGHT_DATA_SERP_ZONE:-serp_api}
+      BRIGHT_DATA_UNLOCKER_ZONE: ${BRIGHT_DATA_UNLOCKER_ZONE:-web_unlocker}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+      HUBSPOT_ACCESS_TOKEN: ${HUBSPOT_ACCESS_TOKEN:-}
+      NOTION_TOKEN: ${NOTION_TOKEN:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    volumes:
+      - exports:/data/exports
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+      args:
+        # Baked into the browser bundle, so it must be the URL the *browser*
+        # uses — not the internal service name.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - '3000:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  exports:

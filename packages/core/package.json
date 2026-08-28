@@ -1,0 +1,22 @@
+{
+  "name": "@frp/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@frp/config": "workspace:*",
+    "@frp/schemas": "workspace:*",
+    "@frp/scoring": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11",
+    "@frp/config": "workspace:*"
+  }
+}

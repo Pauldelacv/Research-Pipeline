@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    name: Lint, typecheck and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # Unit tests need no services: the pipeline runs against in-memory stores.
+      - run: pnpm test
+
+  build:
+    name: Build applications
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @frp/api build
+      - run: pnpm --filter @frp/worker build
+      - run: pnpm --filter @frp/web build
+
+  e2e:
+    name: End-to-end (mock providers)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: frp
+          POSTGRES_PASSWORD: frp
+          POSTGRES_DB: frp
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U frp" --health-interval 5s
+          --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://frp:frp@localhost:5432/frp
+      REDIS_URL: redis://localhost:6379
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      EXPORT_DIR: ${{ github.workspace }}/var/exports
+      # Deterministic providers keep the end-to-end run from flaking on
+      # simulated failures; the retry path has its own unit tests.
+      MOCK_DETERMINISTIC: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm db:migrate
+      - run: pnpm seed
+      - run: pnpm --filter @frp/web build
+
+      - name: Start the stack
+        run: |
+          pnpm dev:api > /tmp/api.log 2>&1 &
+          pnpm dev:worker > /tmp/worker.log 2>&1 &
+          pnpm --filter @frp/web start > /tmp/web.log 2>&1 &
+          npx wait-on http://localhost:4000/health http://localhost:3000 --timeout 90000
+
+      - run: pnpm test:e2e
+
+      - name: Service logs on failure
+        if: failure()
+        run: tail -100 /tmp/api.log /tmp/worker.log /tmp/web.log
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7

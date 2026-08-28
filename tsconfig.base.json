@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+
+    "skipLibCheck": true,
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@frp/core": ["./packages/core/src/index.ts"],
+      "@frp/core/*": ["./packages/core/src/*"],
+      "@frp/schemas": ["./packages/schemas/src/index.ts"],
+      "@frp/schemas/*": ["./packages/schemas/src/*"],
+      "@frp/config": ["./packages/config/src/index.ts"],
+      "@frp/config/*": ["./packages/config/src/*"],
+      "@frp/db": ["./packages/db/src/index.ts"],
+      "@frp/db/*": ["./packages/db/src/*"],
+      "@frp/providers": ["./packages/providers/src/index.ts"],
+      "@frp/providers/*": ["./packages/providers/src/*"],
+      "@frp/scoring": ["./packages/scoring/src/index.ts"],
+      "@frp/scoring/*": ["./packages/scoring/src/*"],
+      "@frp/connectors": ["./packages/connectors/src/index.ts"],
+      "@frp/connectors/*": ["./packages/connectors/src/*"],
+      "@frp/queue": ["./packages/queue/src/index.ts"],
+      "@frp/queue/*": ["./packages/queue/src/*"],
+      "@frp/example-lead-generation": ["./examples/lead-generation/src/index.ts"],
+      "@frp/example-competitive-intelligence": ["./examples/competitive-intelligence/src/index.ts"],
+      "@frp/example-market-research": ["./examples/market-research/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist", ".next"]
+}
