@@ -221,32 +221,46 @@ Every step is idempotent, records its own metrics (`itemsIn`, `itemsOut`,
 
 ## Screenshots
 
-> Captured from the running demo with the mock providers.
+> Captured from the running demo with the mock providers — no credentials, no
+> fixtures.
 
 **Research dashboard** — every job with its live pipeline position.
 
 ![Dashboard](docs/images/dashboard.png)
 
-**Run view** — the pipeline is real backend state, streamed over SSE. The left
-rail shows each step's status, attempt count, metrics, warnings and errors.
+**Run view** — the pipeline rail is real backend state, streamed over SSE. Each
+step shows its status, attempt count, metrics and warnings; the event log is the
+run's full narrative, including the review gate suspending and resuming.
 
 ![Run view](docs/images/run.png)
 
 **Results explorer** — columns are generated from the pipeline configuration.
-Low-confidence cells are marked in place.
+Low-confidence cells are marked in place, so an operator can see which values are
+uncertain without opening a record.
 
 ![Results](docs/images/results.png)
 
-**Entity detail** — per-field confidence, agreement count, and the exact
-snippets and source URLs behind each value.
+**Entity detail** — per-field confidence, how many independent sources agreed,
+and the exact snippets and source URLs behind each value. Click any value to
+correct it.
 
 ![Entity detail](docs/images/entity.png)
 
-**Score breakdown** — every point attributed to a named rule with its reason.
+**Score breakdown** — every point attributed to a named rule with its reason,
+including the rules that _did not_ match and why.
 
 ![Score breakdown](docs/images/score.png)
 
----
+**Create research** — the entire form is generated from the selected pipeline's
+configuration: targeting inputs, field selection, review thresholds, scoring
+weights and destinations.
+
+![Create research](docs/images/create.png)
+
+**System** — provider health is a live probe, so a missing credential shows up
+here rather than three steps into someone's run.
+
+![System](docs/images/system.png)
 
 ## Local development
 
