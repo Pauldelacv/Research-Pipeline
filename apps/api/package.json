@@ -1,0 +1,40 @@
+{
+  "name": "@frp/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "@fastify/cors": "^11.3.0",
+    "@frp/config": "workspace:*",
+    "@frp/connectors": "workspace:*",
+    "@frp/core": "workspace:*",
+    "@frp/db": "workspace:*",
+    "@frp/example-competitive-intelligence": "workspace:*",
+    "@frp/example-lead-generation": "workspace:*",
+    "@frp/example-market-research": "workspace:*",
+    "@frp/providers": "workspace:*",
+    "@frp/queue": "workspace:*",
+    "@frp/schemas": "workspace:*",
+    "@frp/scoring": "workspace:*",
+    "bullmq": "^5.81.4",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.12.1",
+    "ioredis": "^5.11.1",
+    "pg": "^8.23.0",
+    "pino": "^9.14.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.6",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.12",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@frp/connectors",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@frp/config": "workspace:*",
+    "@frp/core": "workspace:*",
+    "@frp/schemas": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11",
+    "@frp/config": "workspace:*"
+  }
+}

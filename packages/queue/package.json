@@ -1,0 +1,23 @@
+{
+  "name": "@frp/queue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@frp/config": "workspace:*",
+    "@frp/core": "workspace:*",
+    "@frp/schemas": "workspace:*",
+    "bullmq": "^5.81.4",
+    "ioredis": "^5.11.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,0 +1,32 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+.pnpm-store/
+.turbo/
+.vercel/
+
+# Local run artefacts
+/var/
+/exports/
+/.data/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Local export output

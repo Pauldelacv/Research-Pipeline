@@ -1,0 +1,11 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'examples/*'
+
+# esbuild ships a platform binary that must be linked at install time; tsx,
+# vitest and tsup all depend on it.
+onlyBuiltDependencies:
+  - esbuild
+  - '@tailwindcss/oxide'
+  - sharp

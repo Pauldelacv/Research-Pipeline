@@ -1,0 +1,53 @@
+# Next.js standalone build.
+#
+# `output: 'standalone'` emits a self-contained server with only the modules it
+# actually imports, which keeps the runtime image small without a second
+# dependency install.
+FROM node:22-bookworm-slim AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /app
+
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
+COPY apps/web/package.json apps/web/
+COPY packages/config/package.json packages/config/
+COPY packages/connectors/package.json packages/connectors/
+COPY packages/core/package.json packages/core/
+COPY packages/db/package.json packages/db/
+COPY packages/providers/package.json packages/providers/
+COPY packages/queue/package.json packages/queue/
+COPY packages/schemas/package.json packages/schemas/
+COPY packages/scoring/package.json packages/scoring/
+COPY examples/lead-generation/package.json examples/lead-generation/
+COPY examples/competitive-intelligence/package.json examples/competitive-intelligence/
+COPY examples/market-research/package.json examples/market-research/
+RUN pnpm install --frozen-lockfile
+
+FROM deps AS build
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages ./packages
+COPY apps/web ./apps/web
+# Baked into the client bundle at build time, so it must be known here.
+ARG NEXT_PUBLIC_API_URL=http://localhost:4000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_OUTPUT=standalone
+RUN pnpm --filter @frp/web build
+
+FROM base AS runtime
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/apps/web/public ./apps/web/public
+
+RUN useradd --system --uid 10001 --create-home frp && chown -R frp:frp /app
+USER frp
+
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

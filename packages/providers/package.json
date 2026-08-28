@@ -1,0 +1,23 @@
+{
+  "name": "@frp/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@frp/config": "workspace:*",
+    "@frp/core": "workspace:*",
+    "@frp/schemas": "workspace:*",
+    "zod": "^4.4.3",
+    "@anthropic-ai/sdk": "^0.122.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}
