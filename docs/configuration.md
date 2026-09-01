@@ -226,6 +226,89 @@ Signals are recomputed in the `score` step and again after every review action.
 
 ---
 
+## `sources.trust` — how much a document is worth
+
+Not every page deserves the same credit. A statement on a government register
+and the same statement on an unknown aggregator arrive with the same provider
+confidence; only one of them should move an operator to act.
+
+```ts
+sources: {
+  trust: {
+    enabled: true,        // false records trust but never applies it
+    defaultScore: 0.5,    // for a source no category claims
+    weight: 0.5,          // how much say trust has; 0 makes it inert
+    categories: [
+      {
+        id: 'government',
+        label: 'Government or official register',
+        score: 1,
+        // A leading `*.` is a suffix rule: `*.gouv.fr` claims
+        // `impots.gouv.fr` and `gouv.fr` alike.
+        domains: ['*.gov', '*.gouv.fr', 'sec.gov'],
+      },
+      {
+        id: 'industry-directory',
+        label: 'Industry directory',
+        score: 0.6,
+        domains: ['crunchbase.com', 'g2.com'],
+      },
+      {
+        id: 'press-release',
+        label: 'Press release',
+        score: 0.7,
+        patterns: ['/press-releases?/'],   // regex against the canonical URL
+      },
+      {
+        id: 'operator-entered',
+        label: 'Entered by an operator',
+        score: 1,
+        kinds: ['manual'],                 // by source kind
+      },
+    ],
+    selfReported: { enabled: true, score: 1 },
+  },
+}
+```
+
+A sensible catalogue ships as the default — government registers, first-party
+datasets, professional networks, major publications, directories — so a
+configuration that says nothing still gets useful behaviour. Declaring
+`categories` replaces the list; put your own entry above a default to shadow it.
+
+**Matching is by specificity, not order.** An explicit domain beats a URL
+pattern, which beats a blanket rule about a source _kind_. Within one level, the
+first declared category wins.
+
+**Trust modifies confidence; it does not replace provenance.** The extract step
+weights each provider confidence:
+
+```
+effective = confidence × (1 − weight + weight × trust)
+```
+
+At `weight: 0` the mechanism is inert. At `weight: 1` an untrusted source's
+values are damped in full proportion to its score. Trust never _raises_ a
+confidence — a reputable publisher does not make a badly-evidenced extraction
+correct, it just fails to punish a well-evidenced one.
+
+The evidence row keeps the **raw** number the extractor reported, and the trust
+verdict is stored on the source. So "the extractor was 0.9 sure, but the page
+was an unknown aggregator" stays legible in the entity panel instead of
+collapsing into one unexplained 0.63. That is what makes a conflict between two
+sources adjudicable by a human.
+
+`selfReported` covers the one source that cannot be listed in advance: a page on
+the entity's own domain. It is recognised per candidate, by comparing the
+source's registrable domain against the identity and URL fields extracted from
+it — the domain is only known once a value has been extracted. It can only raise
+trust, never lower it.
+
+Sources carry their resolved score and category in the run's **Sources** tab and
+beside every evidence snippet in the entity panel.
+
+---
+
 ## `validation`
 
 ```ts

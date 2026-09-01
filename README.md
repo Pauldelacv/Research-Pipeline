@@ -36,7 +36,7 @@ conditions before wiring up anything that costs money.
 - [Connectors](#connectors)
 - [Example pipelines](#example-pipelines)
 - [Extending the framework](#extending-the-framework)
-- [Deployment](#deployment)
+- [Deployment](#deployment) — and the full [self-hosting guide](docs/deployment.md)
 - [Project layout](#project-layout)
 - [What is and isn't implemented](#what-is-and-isnt-implemented)
 
@@ -440,6 +440,7 @@ interface EnrichmentProvider {
 | ------------- | -------------------- | --------------------- | -------------------------------------------------------------------------------- |
 | `mock`        | all four             | none                  | Complete. Default.                                                               |
 | `llm`         | research, extraction | `ANTHROPIC_API_KEY`   | Implemented; schema-constrained structured outputs                               |
+| `openrouter`  | research, extraction | `OPENROUTER_API_KEY`  | Implemented; any OpenRouter model through one OpenAI-compatible endpoint         |
 | `bright-data` | search, extraction   | `BRIGHT_DATA_API_KEY` | Implemented from public API docs, **not verified against a live account**        |
 | `bright-data` | enrichment           | —                     | **Not implemented** — dataset choice is client-specific; it throws a clear error |
 
@@ -447,8 +448,51 @@ Selection is per stage, and per pipeline, falling back to deployment defaults:
 
 ```bash
 PROVIDER_SEARCH=bright-data
-PROVIDER_EXTRACTION=llm
+PROVIDER_EXTRACTION=openrouter
 ```
+
+`llm` and `openrouter` share their prompts, their response schema, the evidence
+requirement and the value coercion. Switching between them changes who serves
+the tokens and nothing about what reaches the datastore — which is what makes
+"try a cheaper model for bulk extraction" a one-line change.
+
+### Every call is counted
+
+Each provider call writes one row: provider, operation, model, tokens, latency,
+outcome and cost. A run's **Cost** tab breaks the total down by provider and by
+pipeline stage.
+
+The view is careful not to present an estimate as a bill. OpenRouter returns
+what a call actually cost, so its rows are `reported`; the Anthropic API returns
+only tokens, so cost is `estimated` from a price table and marked with a `~`; a
+model nobody has priced yields no figure at all, and the run's total is shown as
+a floor rather than as the answer. A confident zero would be the one failure
+mode worth avoiding.
+
+### Sources are not all worth the same
+
+`sources.trust` maps domains, URL patterns and source kinds onto scores. A
+statement on a government register and the same statement on an unknown
+aggregator arrive with identical provider confidence; the trust score decides
+how much of it survives.
+
+```ts
+sources: {
+  trust: {
+    weight: 0.5,
+    categories: [
+      { id: 'government', label: 'Official register', score: 1, domains: ['*.gov', '*.gouv.fr'] },
+      { id: 'directory', label: 'Directory', score: 0.6, domains: ['crunchbase.com'] },
+    ],
+  },
+}
+```
+
+Trust modifies confidence; it does not replace provenance. The evidence row
+keeps the raw number the extractor reported and the source keeps its trust
+verdict, so "0.9 from an unknown aggregator" stays visible instead of
+collapsing into one unexplained 0.63 — which is what makes a conflict between
+two sources adjudicable by a human.
 
 ### The mock provider is the point
 
@@ -536,15 +580,38 @@ sequence — that is what keeps runs comparable and debuggable across deployment
 
 ## Deployment
 
-`docker compose up --build` is the reference deployment. For anything real:
+`docker compose up --build` is the development stack: plain HTTP, published
+database ports, demo data seeded on boot.
 
-- Put the API behind TLS and set `API_KEY`, or replace the shared-secret hook
-  with proper authentication (see [docs/security.md](docs/security.md)).
-- Scale workers horizontally — `WORKER_REPLICAS`. The queue distributes step
+For a real deployment there is a production stack and a step-by-step guide that
+assumes no knowledge of the internals — **[docs/deployment.md](docs/deployment.md)**:
+
+```bash
+cd infra/production
+cp .env.production.example .env      # two domains, two generated secrets
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+```
+Ubuntu → Docker → Compose → Caddy (automatic HTTPS) → API + web + workers
+                                                        └── Postgres + Redis
+```
+
+Caddy is the only exposed service; Postgres and Redis publish no ports at all.
+The guide covers DNS, firewall rules (including why ufw does _not_ protect a
+port Docker published), TLS, verified nightly backups and restores, upgrades
+and migration ordering, worker scaling and its real limits, and a
+troubleshooting section for the failures that actually happen.
+
+The shorter version of what changes for production:
+
+- Set `API_KEY`. This system has no user authentication, so that shared secret
+  is the only thing between the internet and your data — see
+  [docs/security.md](docs/security.md).
+- Scale workers horizontally with `WORKER_REPLICAS`. The queue distributes step
   attempts; nothing in a worker is stateful.
 - Point `EXPORT_DIR` at shared storage, or write a connector that targets object
   storage directly.
-- Run migrations as a release step rather than at container boot.
 - Multi-tenancy: every tenant-owned row already carries `tenant_id`, so
   PostgreSQL row-level security can be switched on without a migration. The demo
   runs single-tenant; [docs/security.md](docs/security.md) says exactly what is
@@ -593,15 +660,21 @@ that does less.
 - Explainable scoring, including graded rules and penalties
 - CSV and JSON export, with download endpoints
 - Live run streaming (SSE over Redis pub/sub) with a polling fallback
+- Configurable source trust, applied to confidence without overwriting evidence
+- Per-call provider usage and cost accounting, rolled up per run and per stage
+- Failure inspection in the UI: stage, provider, retries, the entity in hand,
+  and the provider's response, redacted at write time
 - The full operator console: dashboard, create flow, run view, results
   explorer, entity detail, review
-- 107 unit tests and a Playwright end-to-end test of the demo path
+- 153 unit tests and a Playwright end-to-end test of the demo path
 
 **Implemented but not verified against live third-party accounts**
 
 - The Bright Data search and extraction adapters
 - The HubSpot, Notion and Slack connectors' network paths
 - The LLM provider (written against the documented structured-outputs API)
+- The OpenRouter provider (written against the documented chat-completions and
+  structured-outputs API; tested against a stubbed transport)
 
 These are written from public documentation and are clearly marked in the source
 and in the docs. Dry-run modes exist so you can inspect exactly what would be
@@ -615,7 +688,8 @@ sent.
 - Bright Data dataset enrichment — dataset selection and schema mapping are
   per-client decisions, so the adapter fails loudly rather than guessing
 - Scheduled/recurring runs
-- Provider cost accounting
+- Alerting and log shipping (`/health` and `/v1/metrics` are designed as
+  monitor targets; nothing consumes them for you)
 
 ---
 
@@ -630,6 +704,7 @@ sent.
 | [Development](docs/development.md)     | Running locally, testing, debugging a run, common problems            |
 | [Extending](docs/extending.md)         | New pipelines, providers, connectors, steps — and where things live   |
 | [API reference](docs/api.md)           | Every endpoint, including the SSE stream                              |
+| [Deployment](docs/deployment.md)       | Ubuntu → Docker → Caddy → HTTPS, backups, upgrades, scaling, triage   |
 | [Security](docs/security.md)           | What is implemented, what is missing, and where to add it             |
 | [Examples](examples/README.md)         | The three shipped pipelines and why each exists                       |
 

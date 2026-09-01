@@ -175,13 +175,82 @@ PROVIDER_SEARCH=my-provider
 ## `ProviderCallContext`
 
 ```ts
-{ runId: string; attempt: number; logger: Logger; signal?: AbortSignal }
+{
+  runId: string;
+  attempt: number;
+  logger: Logger;
+  signal?: AbortSignal;
+  recordUsage(usage: ProviderUsageReport): void;
+}
 ```
 
 `attempt` is the current step attempt (1-based). Use it for logging, or to vary
 an idempotency key across retries. The mock provider uses it so a simulated
 transient failure does not reproduce identically on retry — without that,
 `retryable: true` would be decorative.
+
+### 5. Report what a call consumed
+
+`recordUsage` is synchronous and never throws: accounting must not be able to
+fail a run, and a provider should not wait on a database to be counted. The
+report is buffered and flushed once per step attempt — including when the step
+fails, so a step that dies half-way still accounts for what it spent.
+
+```ts
+const startedAt = Date.now();
+try {
+  const response = await callUpstream();
+  ctx.recordUsage({
+    operation: 'search', // your verb: plan | search | extract | unlock…
+    model: null, // null for a per-request API
+    inputTokens: response.usage?.prompt_tokens ?? null,
+    outputTokens: response.usage?.completion_tokens ?? null,
+    costUsd: response.usage?.cost ?? null,
+    costSource: 'reported', // reported | estimated | unknown
+    latencyMs: Date.now() - startedAt,
+    outcome: 'success',
+    target: query.query, // the source, entity or query this was for
+  });
+  return response;
+} catch (error) {
+  // A failed call still consumed a request and often tokens.
+  ctx.recordUsage({
+    operation: 'search',
+    latencyMs: Date.now() - startedAt,
+    outcome: 'failure',
+    errorCode: error instanceof ProviderError ? error.code : 'INTERNAL',
+  });
+  throw error;
+}
+```
+
+Report what you actually know and leave the rest `null`. A made-up token count
+is worse than a missing one: it looks authoritative in a cost report. `costUsd:
+null` renders as "not priced" and marks the run's total as a floor, which is
+the honest outcome when nobody knows the number.
+
+An adapter that delegates — Bright Data fetching a page and handing the text to
+a model — should attribute the delegate's spend to the delegate by setting
+`provider` and `providerKind` on the reports it forwards. A cost report that
+bills model tokens to an unlocker cannot be used to decide anything.
+
+### Provider detail in failure reports
+
+Anything you attach to a `ProviderError`'s `details` is stored on the run's
+failure record and shown in the UI, so put the response body there — it is the
+first thing anyone debugging asks for:
+
+```ts
+throw new ProviderError('my-provider', 'PROVIDER_BAD_RESPONSE', message, {
+  details: { status, response: body, model },
+});
+```
+
+It is redacted before it is written: keys that look like credentials
+(`authorization`, `*token*`, `*secret*`, `*key*`…) and token-shaped values in
+free text are replaced, strings and arrays are bounded. Redaction happens at
+write time rather than at display time, so a view added later cannot reintroduce
+a leak.
 
 ---
 
@@ -222,7 +291,7 @@ MOCK_FAILURE_RATE=0.04
 MOCK_DETERMINISTIC=true      # disable latency and failures (tests)
 ```
 
-### `llm` — research planning and extraction
+### `llm` — research planning and extraction (Anthropic)
 
 Requires `ANTHROPIC_API_KEY`. Both entry points use schema-constrained
 structured outputs: the response schema is **built from your pipeline's field
@@ -241,6 +310,55 @@ The extraction provider fetches pages with plain `fetch` and a minimal
 HTML-to-text pass. Pages needing JavaScript or bot mitigation should be fetched
 by an unlocker-capable provider — see below.
 
+The Anthropic API reports tokens but not a price, so its cost rows are
+`estimated` from the built-in price table. Published prices move; override them
+for the model you actually run:
+
+```bash
+LLM_PRICE_INPUT_PER_MTOK=3
+LLM_PRICE_OUTPUT_PER_MTOK=15
+```
+
+The same pair applies to whichever model adapter is in use — a deployment sets
+them for the model it runs, not per vendor.
+
+### `openrouter` — research planning and extraction
+
+Requires `OPENROUTER_API_KEY`. One key and one OpenAI-compatible endpoint reach
+OpenRouter's whole catalogue, which makes it the pragmatic choice when you want
+to compare models, run a cheaper one for bulk extraction, or use a vendor you
+already pay for.
+
+```bash
+PROVIDER_RESEARCH=openrouter
+PROVIDER_EXTRACTION=openrouter
+OPENROUTER_API_KEY=sk-or-…
+OPENROUTER_MODEL=anthropic/claude-sonnet-4.5   # any OpenRouter model slug
+OPENROUTER_SITE_URL=https://research.example   # optional attribution
+OPENROUTER_APP_NAME=field-research-pipeline    # optional attribution
+```
+
+It shares the prompts, the response schema, the evidence requirement and the
+value coercion with the `llm` adapter. Switching between them changes who serves
+the tokens and nothing about what reaches the datastore.
+
+Two details are specific to it:
+
+- **Strict JSON Schema.** The same Zod schema is converted to JSON Schema and
+  sent with `strict: true`. OpenRouter forwards it to whichever provider serves
+  the model, and their validators are not equally forgiving, so the conversion
+  drops `$schema` and rewrites `anyOf: [{type: 'string'}, {type: 'null'}]` as
+  `type: ['string', 'null']`. The reply is re-validated against the Zod schema
+  afterwards: the JSON Schema constrains the model, the Zod parse catches the
+  model that ignored it.
+- **Reported cost.** OpenRouter returns what a call actually cost, so its usage
+  rows are `reported` rather than `estimated` — the only shipped provider for
+  which the run's cost figure is a price rather than a calculation.
+
+Errors are classified by status: 429 and 5xx are retryable; 401/403 (bad key)
+and 402 (out of credits) are not, because retrying those just burns the run's
+remaining attempts.
+
 ### `bright-data` — search and extraction
 
 Requires `BRIGHT_DATA_API_KEY` and configured zones.
@@ -249,6 +367,10 @@ Requires `BRIGHT_DATA_API_KEY` and configured zones.
 - **Extraction** uses a Web Unlocker zone to _fetch_, then delegates
   _interpretation_ to another extraction provider (the LLM one). Separating
   retrieval from interpretation is what keeps this adapter small and swappable.
+
+Retrieval is billed per request rather than per token, so its usage rows carry
+a request count and a latency and no price. The delegate's tokens are attributed
+to the delegate, not to the unlocker.
 
 **Status, stated plainly:** written against Bright Data's public documentation
 and **not verified against a live account**, because this repository ships
@@ -295,3 +417,29 @@ it('returns nothing rather than inventing an entity', async () => {
 
 `packages/providers/src/mock/mock.test.ts` implements all of these against the
 mock provider and is a reasonable template.
+
+---
+
+## Cost accounting
+
+Every provider call writes one row to `provider_usage`: provider, operation,
+model, tokens, request count, latency, outcome and cost. The table is
+append-only and the run-level rollup is computed on read, so the number always
+matches the calls it claims to summarise.
+
+`GET /v1/runs/:id/usage` returns totals plus per-provider and per-stage
+breakdowns; `?detail=true` adds the individual calls. The run view renders it
+under the **Cost** tab.
+
+Three things the view is deliberately careful about:
+
+| Label                       | Means                                                       |
+| --------------------------- | ----------------------------------------------------------- |
+| `reported`                  | The provider returned this price for this call.             |
+| `estimated`                 | Tokens × a price table. Shown with a `~`.                   |
+| `unknown` (`costUsd: null`) | Nobody could price it. The run's total is shown as a floor. |
+
+A model absent from the price table yields `null`, never a confident zero — a
+zero quietly understates a run's cost, which is the one number this exists to
+get right. Set `LLM_PRICE_INPUT_PER_MTOK` / `LLM_PRICE_OUTPUT_PER_MTOK` to
+price your model explicitly, or use `openrouter`, which reports real prices.

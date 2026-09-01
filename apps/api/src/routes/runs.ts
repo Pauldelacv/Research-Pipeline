@@ -247,6 +247,12 @@ export function registerRunRoutes(app: FastifyInstance, ctx: AppContext): void {
       'cache-control': 'no-cache, no-transform',
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
+      // Writing raw headers bypasses every Fastify hook, including the CORS
+      // plugin's — so the CORS headers have to be repeated here. Without them
+      // the browser rejects the stream on any cross-origin pair (the shipped
+      // localhost:3000 → localhost:4000 among them) and the run view silently
+      // degrades to its 4-second polling fallback.
+      ...corsHeaders(ctx, request.headers.origin),
     });
 
     const send = (payload: unknown) => {
@@ -278,6 +284,22 @@ export function registerRunRoutes(app: FastifyInstance, ctx: AppContext): void {
     // Returning the raw reply tells Fastify the response is managed manually.
     return reply;
   });
+}
+
+/**
+ * The CORS headers the plugin would have added, for a response that writes its
+ * own. Echoes the request's origin only when the deployment allows it, so this
+ * cannot widen the policy configured in `API_CORS_ORIGIN`.
+ */
+function corsHeaders(ctx: AppContext, origin: string | undefined): Record<string, string> {
+  if (!origin) return {};
+  const allowed = ctx.env.API_CORS_ORIGIN.split(',').map((entry) => entry.trim());
+  if (!allowed.includes(origin) && !allowed.includes('*')) return {};
+  return {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'true',
+    vary: 'Origin',
+  };
 }
 
 async function requireRun(ctx: AppContext, runId: string) {

@@ -138,6 +138,8 @@ erDiagram
     ENTITY_FIELD ||--o{ EVIDENCE : "justified by"
     EVIDENCE }o--|| SOURCE : "quotes"
     RUN ||--o{ RUN_EVENT : "timeline"
+    RUN ||--o{ PROVIDER_USAGE : "spent on"
+    RUN ||--o{ RUN_FAILURE : "went wrong in"
     RUN ||--o{ EXPORT : delivered
 ```
 
@@ -174,6 +176,34 @@ expensive step.
 A run stores `config_snapshot`. Editing a project never rewrites history, so a
 six-week-old result set can still be explained by the rules that actually
 produced it.
+
+The same reasoning applies to a source's trust score: it is resolved when the
+source is recorded and stored on the row, not recomputed on read. A run keeps
+the verdict it actually acted on even after the trust configuration changes,
+which is what makes an old confidence figure explainable.
+
+### Two append-only ledgers
+
+`provider_usage` and `run_failures` are written but never updated.
+
+`provider_usage` holds one row per upstream call. A run's cost is the sum of
+what it did; a row that can be edited is a number nobody can defend. The
+run-level rollup is therefore computed on read rather than kept as a counter,
+so the total always matches the calls it claims to summarise. Runs have bounded
+cardinality — thousands of calls, not millions — which is what makes that
+affordable.
+
+Rows are buffered in the pipeline context and flushed once per step attempt,
+including on the failure path. A provider call should not pay a database round
+trip to be counted, and a step that dies half-way must still account for what
+it spent getting there.
+
+`run_failures` holds the failures a step _tolerated_ alongside the ones that
+ended it. A step reporting `partial` has, by construction, swallowed something;
+the warning it surfaces is a sentence, and this is the row that says which
+document it was, which provider refused, and what the provider replied. The
+provider response is redacted at **write** time, not display time — a view
+added later cannot reintroduce a leak.
 
 ---
 
@@ -271,6 +301,8 @@ Every log line carries `runId`, `stepId`, `attempt` and `provider`.
 | `StepMetrics`        | `itemsIn`, `itemsOut`, `itemsFailed`, `providerCalls`, `providerErrors`, `durationMs` |
 | `run_events`         | The narrative, at four levels, cursor-ordered by a monotonic `seq`                    |
 | `runs.stats`         | Cumulative counters: sources, entities, retries, provider errors                      |
+| `run_failures`       | What broke, on which document or entity, and the provider's (redacted) response       |
+| `provider_usage`     | One row per upstream call: tokens, requests, latency, outcome, cost                   |
 | `GET /health`        | Real dependency probes — Postgres, Redis, queue depth                                 |
 | `GET /v1/metrics`    | Success rate, median duration, queue state                                            |
 | `GET /v1/providers`  | Live provider healthchecks — a missing key is visible here                            |
@@ -296,9 +328,19 @@ Recorded so a reader can disagree knowingly.
   volume a dedicated log store would be better. At the scale this targets, one
   datastore is worth far more than the marginal throughput.
 - **Confidence is provider-reported, not calibrated.** The system propagates,
-  merges and penalises confidence but does not attempt to calibrate a provider's
-  self-assessment. Real calibration needs labelled outcomes, which a framework
-  cannot assume.
+  merges, penalises and trust-weights confidence but does not attempt to
+  calibrate a provider's self-assessment. Real calibration needs labelled
+  outcomes, which a framework cannot assume.
+- **Trust can only lower a confidence, never raise it.** A government register
+  does not make a badly-evidenced extraction correct; it just fails to punish a
+  well-evidenced one. A symmetric weighting would let a reputable domain inflate
+  a weak signal, which is exactly the failure the review gate exists to catch.
+- **Cost is an estimate unless the provider says otherwise.** Most APIs report
+  tokens, not money, so most cost figures are tokens multiplied by a local price
+  table — labelled `estimated` wherever they appear. A model absent from the
+  table yields no figure at all and marks the run's total as a floor. A
+  confident zero would be the worse failure: it understates a run's cost
+  silently, which is the one thing the feature exists to prevent.
 - **Enrichment is entity-keyed, not document-keyed.** It fills gaps from an
   entity graph rather than re-reading pages, which is why re-processing an
   entity recomputes signals and score but does not re-extract.

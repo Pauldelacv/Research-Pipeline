@@ -98,22 +98,35 @@ PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium pnpm test:e2e
 
 1. **The run view** — step statuses, attempt counts, per-step metrics, warnings
    and errors, live.
-2. **The Events tab** — filter by level; expand an event for its structured
+2. **The Failures tab** — usually the fastest answer. One row per failure, with
+   the pipeline stage, the provider, the attempt count, the source or entity in
+   hand, and the provider's response (redacted when it was written). It records
+   the failures a step _tolerated_ as well as the ones that ended it, which is
+   the part logs make hard to see.
+3. **The Events tab** — filter by level; expand an event for its structured
    data. `step.retry`, `step.failed` and `provider` errors are all here.
-3. **Logs** — every line carries `runId`, `stepId`, `attempt` and `provider`:
+4. **The Cost tab** — when the problem is "this run got expensive", not "this
+   run broke". Spend per provider, per stage and per call.
+5. **Logs** — every line carries `runId`, `stepId`, `attempt` and `provider`:
 
    ```bash
    docker compose logs worker | grep run_9es8v0
    ```
 
-4. **The database** — the run record is the source of truth:
+6. **The database** — the run record is the source of truth:
 
    ```sql
    select step_id, status, attempt, metrics->>'durationMs' as ms, error
    from pipeline_step_runs where run_id = 'run_9es8v0' order by created_at;
+
+   select step_id, scope, code, provider, target_label, will_retry
+   from run_failures where run_id = 'run_9es8v0' order by created_at desc;
+
+   select provider, operation, count(*), sum(cost_usd)
+   from provider_usage where run_id = 'run_9es8v0' group by 1, 2;
    ```
 
-5. **The System page** — provider health, connector inventory, queue depth. A
+7. **The System page** — provider health, connector inventory, queue depth. A
    missing credential shows up here rather than three steps into someone's run.
 
 ## Common problems

@@ -17,6 +17,8 @@ coverage/
 
 # Local run artefacts
 /var/
+# Production database dumps, written beside the compose file that makes them.
+infra/production/backups/
 /exports/
 /.data/
 playwright-report/

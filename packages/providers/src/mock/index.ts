@@ -114,7 +114,9 @@ abstract class MockProviderBase {
           'mock',
           code,
           `simulated upstream failure (attempt ${ctx.attempt}) for "${key}"`,
-          { retryable: true, details: { key, attempt: ctx.attempt } },
+          // Not named `key`: the redaction pass treats any key-ish field name
+          // as a credential, and this one is useful debugging context.
+          { retryable: true, details: { call: key, attempt: ctx.attempt } },
         );
       }
     }
