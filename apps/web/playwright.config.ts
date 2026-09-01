@@ -11,7 +11,9 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
-  reporter: process.env.CI ? 'list' : [['list']],
+  // CI uploads apps/web/playwright-report on failure, so CI has to actually
+  // produce one: the list reporter writes to stdout and leaves no files behind.
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
     trace: 'retain-on-failure',
