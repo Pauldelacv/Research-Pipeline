@@ -84,7 +84,12 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      # `@playwright/test` is a dev dependency of @frp/web, not of the root
+      # workspace, so there is no `playwright` in the root node_modules/.bin:
+      # a bare `pnpm exec` at the root aborts with "Command not found". The
+      # filter runs it in the package that actually owns the binary, which is
+      # also the package whose pinned version the e2e run then uses.
+      - run: pnpm --filter @frp/web exec playwright install --with-deps chromium
 
       - run: pnpm db:migrate
       - run: pnpm seed
@@ -120,7 +125,17 @@ jobs:
 
       - name: Service logs on failure
         if: failure()
-        run: tail -100 /tmp/api.log /tmp/worker.log /tmp/web.log
+        # `-n 100`, not `-100`: GNU tail rejects the obsolete form outright
+        # ("option used in invalid context") the moment more than one file is
+        # named. And a diagnostic step must never fail the job itself — when
+        # the run dies before "Start the stack", these files do not exist, and
+        # a second red step buries the real error.
+        run: |
+          for log in /tmp/api.log /tmp/worker.log /tmp/web.log; do
+            echo "::group::$log"
+            if [ -f "$log" ]; then tail -n 100 "$log"; else echo '(never created)'; fi
+            echo '::endgroup::'
+          done
 
       # test-results/ carries the traces and screenshots (retain-on-failure);
       # playwright-report/ is the browsable HTML summary.
