@@ -4,17 +4,30 @@ import { EntityPanel } from '@/components/entity-panel';
 import { PipelineTimeline } from '@/components/pipeline-progress';
 import { ResultsTable } from '@/components/results-table';
 import { RunEvents } from '@/components/run-events';
+import { RunFailures } from '@/components/run-failures';
+import { RunUsage } from '@/components/run-usage';
 import { PageHeader } from '@/components/shell';
-import { Button, Dot, Empty, Mono, Panel, StatusPill, Tabs } from '@/components/ui/primitives';
+import {
+  Button,
+  Dot,
+  Empty,
+  Meter,
+  Mono,
+  Panel,
+  StatusPill,
+  Tabs,
+} from '@/components/ui/primitives';
 import { api } from '@/lib/api';
 import type { ExportRecord } from '@frp/schemas';
 import {
   RUN_STATUS_LABEL,
   RUN_STATUS_TONE,
   cn,
+  formatCost,
   formatDuration,
   formatRelative,
   formatTimestamp,
+  percent,
 } from '@/lib/format';
 import { useLiveRun, useRunSources } from '@/lib/hooks';
 import { useQueryClient } from '@tanstack/react-query';
@@ -26,10 +39,10 @@ import { useState } from 'react';
  *
  * The left rail is the pipeline itself, streamed from the backend. The right
  * side switches between the structured results, the sources the run looked at,
- * and its event log. The review gate surfaces as a banner with the two actions
- * that actually move the run forward.
+ * its event log, the failures it recorded and what it spent. The review gate
+ * surfaces as a banner with the two actions that actually move the run forward.
  */
-type RunTab = 'results' | 'sources' | 'events' | 'exports';
+type RunTab = 'results' | 'sources' | 'events' | 'failures' | 'usage' | 'exports';
 
 export default function RunPage() {
   const params = useParams<{ runId: string }>();
@@ -202,6 +215,28 @@ export default function RunPage() {
               <Counter label="Retries" value={run.stats.retries} tone="warn" />
             </dl>
           </div>
+
+          <div className="border-t border-[var(--color-line)] px-3 py-2">
+            <h3 className="mb-1.5 text-[10px] font-semibold tracking-[0.1em] text-[var(--color-ink-faint)] uppercase">
+              Spend
+            </h3>
+            <dl className="flex flex-col gap-0.5">
+              <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                <dt className="text-[var(--color-ink-faint)]">
+                  {detail.usage.partialCost ? 'Cost (at least)' : 'Estimated cost'}
+                </dt>
+                <dd className="tnum text-[var(--color-ink)]">{formatCost(detail.usage.costUsd)}</dd>
+              </div>
+              <Counter label="Provider calls" value={detail.usage.requests} />
+              <Counter label="Failed calls" value={detail.usage.failures} tone="danger" />
+              <button
+                onClick={() => setTab('usage')}
+                className="mt-1 self-start text-[11px] text-[var(--color-accent)] hover:underline"
+              >
+                Break it down →
+              </button>
+            </dl>
+          </div>
         </div>
 
         {/* Work area */}
@@ -218,6 +253,8 @@ export default function RunPage() {
                 },
                 { id: 'sources' as const, label: 'Sources', count: run.stats.sourcesDiscovered },
                 { id: 'events' as const, label: 'Events', count: events.length },
+                { id: 'failures' as const, label: 'Failures', count: detail.failureCount },
+                { id: 'usage' as const, label: 'Cost', count: detail.usage.requests },
                 { id: 'exports' as const, label: 'Exports', count: detail.exports.length },
               ]}
               active={tab}
@@ -239,6 +276,10 @@ export default function RunPage() {
                 <SourcesTable runId={runId} />
               ) : tab === 'events' ? (
                 <RunEvents events={events} />
+              ) : tab === 'failures' ? (
+                <RunFailures runId={runId} live={isActive} />
+              ) : tab === 'usage' ? (
+                <RunUsage runId={runId} live={isActive} />
               ) : (
                 <ExportsTable exports={detail.exports} />
               )}
@@ -309,6 +350,7 @@ function SourcesTable({ runId }: { runId: string }) {
             <th className="w-24 px-3 py-1.5 font-medium">Kind</th>
             <th className="w-40 px-3 py-1.5 font-medium">Found by query</th>
             <th className="w-20 px-3 py-1.5 font-medium">Provider</th>
+            <th className="w-36 px-3 py-1.5 font-medium">Trust</th>
             <th className="w-16 px-3 py-1.5 text-right font-medium">Rank</th>
           </tr>
         </thead>
@@ -336,6 +378,29 @@ function SourcesTable({ runId }: { runId: string }) {
               </td>
               <td className="px-3 py-1.5">
                 <Mono className="text-[var(--color-ink-faint)]">{source.provider}</Mono>
+              </td>
+              <td className="px-3 py-1.5">
+                {/* Trust modifies the confidence of everything extracted from
+                    this page, so it belongs beside the page, not buried in a
+                    field's provenance. */}
+                <span className="flex items-center gap-1.5">
+                  <Meter
+                    value={source.trustScore}
+                    tone={
+                      source.trustScore >= 0.8 ? 'ok' : source.trustScore >= 0.5 ? 'warn' : 'danger'
+                    }
+                    width={32}
+                  />
+                  <span className="tnum text-[11px] text-[var(--color-ink-faint)]">
+                    {percent(source.trustScore)}
+                  </span>
+                  <span
+                    className="truncate text-[10px] text-[var(--color-ink-faint)]"
+                    title={source.trustCategory ?? 'no category matched'}
+                  >
+                    {source.trustCategory ?? '—'}
+                  </span>
+                </span>
               </td>
               <td className="tnum px-3 py-1.5 text-right text-[var(--color-ink-faint)]">
                 {source.rank ?? '—'}

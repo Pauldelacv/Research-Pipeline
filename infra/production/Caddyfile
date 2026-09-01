@@ -1,0 +1,61 @@
+# Caddy obtains and renews certificates automatically over ACME. The only
+# prerequisites are that both names resolve to this host and that ports 80 and
+# 443 are reachable — the HTTP-01 challenge needs port 80 even though nothing
+# is served over it afterwards.
+{
+	email {$TLS_EMAIL}
+	# Uncomment while testing to avoid Let's Encrypt's rate limits (5 failed
+	# issuances per account per hour). Staging certificates are untrusted by
+	# browsers, which is the point: you are testing the plumbing, not the trust.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# --- operator console -------------------------------------------------------
+{$APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access-web.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}
+
+# --- API --------------------------------------------------------------------
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	# The run view streams server-sent events. Buffering them turns a live
+	# pipeline into a page that updates once, at the end — so flush immediately
+	# and allow a long-lived response.
+	reverse_proxy api:4000 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	log {
+		output file /data/access-api.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}

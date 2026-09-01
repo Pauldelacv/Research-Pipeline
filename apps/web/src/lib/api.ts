@@ -7,15 +7,19 @@ import type {
   FieldDefinition,
   Paginated,
   PipelineStepRun,
+  ProviderUsage,
   ResearchPipelineConfig,
   ResearchProject,
   ResearchRun,
   Review,
   RunEvent,
+  RunFailure,
+  RunUsageSummary,
   ScoringRuleDefinition,
   SignalDefinition,
   Source,
   TargetingFieldDefinition,
+  UsageTotals,
 } from '@frp/schemas';
 
 /**
@@ -127,6 +131,13 @@ export interface RunDetail {
   exports: ExportRecord[];
   entityCounts: Record<EntityStatus, number>;
   pendingReview: number;
+  failureCount: number;
+  usage: UsageTotals;
+}
+
+export interface RunUsageDetail extends RunUsageSummary {
+  /** Null unless the request asked for per-call rows. */
+  calls: ProviderUsage[] | null;
 }
 
 export interface EntityDetail {
@@ -176,6 +187,10 @@ export const api = {
     ),
   runSources: (id: string, limit = 100) =>
     request<{ items: Source[]; total: number }>(`/v1/runs/${id}/sources?limit=${limit}`),
+  runFailures: (id: string, limit = 200) =>
+    request<{ items: RunFailure[]; total: number }>(`/v1/runs/${id}/failures?limit=${limit}`),
+  runUsage: (id: string, detail = true) =>
+    request<RunUsageDetail>(`/v1/runs/${id}/usage?detail=${detail ? 'true' : 'false'}`),
   cancelRun: (id: string) => request<{ ok: boolean }>(`/v1/runs/${id}/cancel`, { method: 'POST' }),
   resumeRun: (id: string, force = false) =>
     request<{ ok: boolean; enqueued: boolean; run: ResearchRun }>(`/v1/runs/${id}/resume`, {

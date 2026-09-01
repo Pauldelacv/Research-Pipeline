@@ -75,6 +75,32 @@ abstract class MockProviderBase {
    */
   protected async remoteCall(key: string, ctx: ProviderCallContext): Promise<SeededRandom> {
     const data = new SeededRandom(`${this.options.seed}:${key}`);
+    const [operation = 'call', ...rest] = key.split(':');
+    const target = rest.join(':') || null;
+    const startedAt = Date.now();
+
+    /**
+     * Usage is reported like everything else the mock does: simulated, but
+     * shaped like the real thing, so the cost view has something to render
+     * without credentials. The *cost* is a truthful zero — a mock call really
+     * is free — while the token counts are seeded fiction, which is why they
+     * are derived from the same generator as the data.
+     */
+    const account = (outcome: 'success' | 'failure', errorCode?: string) => {
+      const inputTokens = 400 + Math.round(data.next() * 3_000);
+      ctx.recordUsage({
+        operation,
+        model: `mock:${this.options.seed}`,
+        inputTokens,
+        outputTokens: Math.round(inputTokens * (0.05 + data.next() * 0.2)),
+        costUsd: 0,
+        costSource: 'reported',
+        latencyMs: Date.now() - startedAt,
+        outcome,
+        errorCode: errorCode ?? null,
+        target,
+      });
+    };
 
     if (!this.options.deterministic) {
       const jitter = 0.6 + data.next() * 0.8;
@@ -82,15 +108,20 @@ abstract class MockProviderBase {
 
       const fate = new SeededRandom(`${this.options.seed}:${key}:attempt:${ctx.attempt}`);
       if (fate.next() < this.options.failureRate) {
+        const code = fate.bool() ? 'PROVIDER_RATE_LIMITED' : 'PROVIDER_TIMEOUT';
+        account('failure', code);
         throw new ProviderError(
           'mock',
-          fate.bool() ? 'PROVIDER_RATE_LIMITED' : 'PROVIDER_TIMEOUT',
+          code,
           `simulated upstream failure (attempt ${ctx.attempt}) for "${key}"`,
-          { retryable: true },
+          // Not named `key`: the redaction pass treats any key-ish field name
+          // as a credential, and this one is useful debugging context.
+          { retryable: true, details: { call: key, attempt: ctx.attempt } },
         );
       }
     }
 
+    account('success');
     return data;
   }
 

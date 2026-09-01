@@ -44,6 +44,8 @@ export function createSourceStore(db: Database): SourceStore {
             provider: item.provider,
             query: item.query,
             rank: item.rank,
+            trustScore: item.trust.score,
+            trustCategory: item.trust.categoryId,
           })),
         )
         .onConflictDoNothing()

@@ -64,10 +64,31 @@ export class BrightDataSearchProvider implements SearchProvider {
 
   async search(query: SearchQuery, ctx: ProviderCallContext): Promise<SearchResult[]> {
     const url = this.client.serpUrl(query.query, query.limit, query.region);
-    const body = await this.client.request(
-      { url, zone: this.client.zones.serp, format: 'raw' },
-      ctx.signal,
-    );
+    const startedAt = Date.now();
+    let body: string;
+    try {
+      body = await this.client.request(
+        { url, zone: this.client.zones.serp, format: 'raw' },
+        ctx.signal,
+      );
+    } catch (error) {
+      // Bright Data bills per request, not per token, so a failed request is
+      // still a request: recording it keeps the run's call count honest.
+      ctx.recordUsage({
+        operation: 'search',
+        latencyMs: Date.now() - startedAt,
+        outcome: 'failure',
+        errorCode: error instanceof ProviderError ? error.code : 'INTERNAL',
+        target: query.query,
+      });
+      throw error;
+    }
+    ctx.recordUsage({
+      operation: 'search',
+      latencyMs: Date.now() - startedAt,
+      outcome: 'success',
+      target: query.query,
+    });
 
     let payload: unknown;
     try {
@@ -132,10 +153,31 @@ export class BrightDataExtractionProvider implements ExtractionProvider {
   }
 
   async extract(input: ExtractionInput, ctx: ProviderCallContext): Promise<ExtractionOutput> {
-    const html = await this.client.request(
-      { url: input.source.url, zone: this.client.zones.unlocker, format: 'raw' },
-      ctx.signal,
-    );
+    const startedAt = Date.now();
+    let html: string;
+    try {
+      html = await this.client.request(
+        { url: input.source.url, zone: this.client.zones.unlocker, format: 'raw' },
+        ctx.signal,
+      );
+    } catch (error) {
+      ctx.recordUsage({
+        operation: 'unlock',
+        latencyMs: Date.now() - startedAt,
+        outcome: 'failure',
+        errorCode: error instanceof ProviderError ? error.code : 'INTERNAL',
+        target: input.source.id,
+      });
+      throw error;
+    }
+    // The unlocker fetch is billed separately from whatever the delegate
+    // spends interpreting the page; the delegate records its own row.
+    ctx.recordUsage({
+      operation: 'unlock',
+      latencyMs: Date.now() - startedAt,
+      outcome: 'success',
+      target: input.source.id,
+    });
 
     const text = htmlToText(html);
     if (!text) {
@@ -143,10 +185,22 @@ export class BrightDataExtractionProvider implements ExtractionProvider {
     }
 
     // The delegate receives the fetched text in place of the snippet, so it
-    // never has to reach the network itself.
+    // never has to reach the network itself. Its spend is attributed to it
+    // rather than to the unlocker: a cost report that bills model tokens to
+    // Bright Data cannot be used to decide anything.
+    const delegateCtx: ProviderCallContext = {
+      ...ctx,
+      recordUsage: (usage) =>
+        ctx.recordUsage({
+          ...usage,
+          provider: this.delegate.meta.id,
+          providerKind: this.delegate.meta.kind,
+        }),
+    };
+
     const output = await this.delegate.extract(
       { ...input, source: { ...input.source, snippet: text } },
-      ctx,
+      delegateCtx,
     );
 
     return { ...output, providerCalls: output.providerCalls + 1 };

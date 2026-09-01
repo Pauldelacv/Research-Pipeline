@@ -1,0 +1,190 @@
+name: field-research-pipeline
+
+# Production stack: Caddy terminates TLS in front of the web console and the
+# API; Postgres and Redis are reachable only on the private compose network.
+#
+#            internet
+#               │  :80 / :443
+#          ┌────▼────┐
+#          │  caddy  │  automatic HTTPS, HTTP→HTTPS redirect
+#          └──┬───┬──┘
+#     web:3000│   │api:4000
+#          ┌──▼─┐ └─▼──┐
+#          │web │ │api │──┐
+#          └────┘ └────┘  │
+#                         ├── postgres:5432   (no published port)
+#          ┌────────┐     │
+#          │ worker │─────┘   redis:6379      (no published port)
+#          └────────┘
+#
+# Differences from the development `docker-compose.yml` at the repository root,
+# each of which matters in production:
+#
+#   * Postgres and Redis publish no ports. On a VPS, `ports:` binds to 0.0.0.0
+#     and Docker writes its own iptables rules *ahead* of ufw — a published
+#     database port is reachable from the internet even with ufw "enabled".
+#   * The API applies migrations but does not seed. Demo data in a production
+#     database is indistinguishable from real data three months later.
+#   * Every service restarts unless stopped, and every credential comes from
+#     the environment with no default.
+#
+# Usage (see docs/deployment.md):
+#   docker compose -f infra/production/docker-compose.prod.yml up -d --build
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Holds the issued certificates and the ACME account key. Losing this
+      # volume means re-issuing on next boot, which Let's Encrypt rate-limits.
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN}
+      TLS_EMAIL: ${TLS_EMAIL:?set TLS_EMAIL}
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-frp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-frp}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Where `pg_dump` writes. Mounted so backups survive the container.
+      - ./backups:/backups
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-frp} -d ${POSTGRES_DB:-frp}']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    # A research database is read-heavy on jsonb and write-heavy in bursts.
+    # These are conservative for a 4 GB VPS; see docs/deployment.md to size up.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - max_connections=100
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # AOF on: the queue holds in-flight step jobs. Losing them on a restart
+    # strands runs mid-pipeline — recoverable, but only by hand.
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      # Never evict: BullMQ keys are state, not cache.
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        SERVICE: api
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-frp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-frp}
+      REDIS_URL: redis://redis:6379
+      API_PORT: '4000'
+      API_HOST: 0.0.0.0
+      API_CORS_ORIGIN: https://${APP_DOMAIN}
+      EXPORT_DIR: /data/exports
+    volumes:
+      - exports:/data/exports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Migrations only. Seeding a production database with demo companies is a
+    # mistake that is very hard to unpick later.
+    command: sh -c "node dist/migrate.js && node dist/index.js"
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        SERVICE: worker
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-frp}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-frp}
+      REDIS_URL: redis://redis:6379
+      EXPORT_DIR: /data/exports
+    volumes:
+      - exports:/data/exports
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+    # A step attempt can run for minutes; give in-flight work time to finish
+    # before SIGKILL. The worker's shutdown handler waits for active jobs.
+    stop_grace_period: 150s
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.web
+      args:
+        # Baked into the browser bundle, so it must be the public API URL —
+        # changing it later requires a rebuild, not a restart.
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN:?set API_DOMAIN}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:
+  exports:
+  caddy-data:
+  caddy-config:

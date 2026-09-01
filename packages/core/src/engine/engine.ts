@@ -1,5 +1,5 @@
 import { PIPELINE_STEP_ORDER, type RunStatus, type StepId, type StepMetrics } from '@frp/schemas';
-import { PipelineError, RunCancelledError, toErrorRecord } from '../errors.js';
+import { PipelineError, ProviderError, RunCancelledError, toErrorRecord } from '../errors.js';
 import type { PipelineContext, PipelineStep, StepOutcome } from './types.js';
 
 /**
@@ -98,6 +98,8 @@ export class PipelineEngine {
       };
       const warnings = result.warnings ?? [];
 
+      await ctx.flushUsage();
+
       await ctx.stores.runs.finishStepRun(ctx.runId, stepId, {
         status: result.status,
         metrics,
@@ -128,6 +130,24 @@ export class PipelineEngine {
       const durationMs = ctx.now().getTime() - startedAt;
       const cancelled = error instanceof RunCancelledError;
       const willRetry = !cancelled && record.retryable && ctx.attempt < step.maxAttempts;
+
+      // Spend is real whether or not the step finished; flush before anything
+      // else so a step that dies mid-way still accounts for what it consumed.
+      await ctx.flushUsage();
+
+      if (!cancelled) {
+        await ctx.recordFailure({
+          scope: 'step',
+          code: record.code,
+          message: record.message,
+          retryable: record.retryable,
+          provider: error instanceof ProviderError ? error.provider : null,
+          operation: stepId,
+          willRetry,
+          maxAttempts: step.maxAttempts,
+          detail: error instanceof PipelineError ? error.details : undefined,
+        });
+      }
 
       await ctx.stores.runs.finishStepRun(ctx.runId, stepId, {
         // A step awaiting another attempt stays `running`, so the UI shows a

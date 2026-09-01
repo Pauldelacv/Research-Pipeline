@@ -29,6 +29,15 @@ export const sourceSchema = z.object({
   /** Which planned query surfaced it — useful when a query goes off-target. */
   query: z.string().nullable(),
   rank: z.number().int().nullable(),
+  /**
+   * How much this source's statements are worth, resolved from the pipeline's
+   * trust configuration when the source was recorded. Kept alongside the
+   * source rather than folded into confidences, so the weighting stays
+   * inspectable after the fact.
+   */
+  trustScore: confidenceSchema,
+  /** Trust category that claimed this source, or null when none matched. */
+  trustCategory: z.string().nullable(),
   httpStatus: z.number().int().nullable(),
   contentHash: z.string().nullable(),
   fetchedAt: z.string().nullable(),

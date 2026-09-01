@@ -1,22 +1,27 @@
 import type {
   Entity,
   EntityField,
-  EntityStatus,
   EntitySignal,
+  EntityStatus,
   Evidence,
   ExportRecord,
+  FailureScope,
   FieldStatus,
   JsonValue,
   Paginated,
   PipelineStepRun,
+  ProviderUsage,
   ResearchProject,
   ResearchRun,
   Review,
   RunEvent,
   RunEventLevel,
+  RunFailure,
+  RunUsageSummary,
   ScoreBreakdown,
   Source,
   SourceKind,
+  SourceTrust,
   StepId,
   StepMetrics,
   StepStatus,
@@ -82,6 +87,8 @@ export interface SourceWrite {
   provider: string;
   query: string | null;
   rank: number | null;
+  /** Resolved when the source is recorded; see `trust.ts`. */
+  trust: SourceTrust;
 }
 
 export interface SourceStore {
@@ -230,6 +237,62 @@ export interface ExportStore {
   listByRun(runId: string): Promise<ExportRecord[]>;
 }
 
+/**
+ * Per-call provider accounting.
+ *
+ * Written in batches at the end of a step attempt rather than inline: a
+ * provider call should not pay a database round-trip to be counted, and a
+ * failed step must still leave behind what it spent before failing.
+ */
+export interface UsageWrite {
+  runId: string;
+  stepId: StepId | null;
+  provider: string;
+  providerKind: string;
+  operation: string;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  requests: number;
+  costUsd: number | null;
+  costSource: ProviderUsage['costSource'];
+  latencyMs: number | null;
+  outcome: ProviderUsage['outcome'];
+  errorCode: string | null;
+  target: string | null;
+}
+
+export interface UsageStore {
+  recordMany(entries: UsageWrite[]): Promise<number>;
+  listByRun(runId: string, options?: { limit?: number; offset?: number }): Promise<ProviderUsage[]>;
+  /** Run-level rollup: totals plus per-provider and per-step breakdowns. */
+  summarise(runId: string): Promise<RunUsageSummary>;
+}
+
+export interface FailureWrite {
+  runId: string;
+  stepId: StepId;
+  scope: FailureScope;
+  attempt: number;
+  maxAttempts: number;
+  willRetry: boolean;
+  code: string;
+  message: string;
+  retryable: boolean;
+  provider: string | null;
+  operation: string | null;
+  targetId: string | null;
+  targetLabel: string | null;
+  /** Already sanitised by the caller — see `redact.ts`. */
+  detail: Record<string, unknown> | null;
+}
+
+export interface FailureStore {
+  record(failure: FailureWrite): Promise<RunFailure>;
+  listByRun(runId: string, options?: { limit?: number; offset?: number }): Promise<RunFailure[]>;
+  countByRun(runId: string): Promise<number>;
+}
+
 export interface StoreBundle {
   projects: ProjectStore;
   runs: RunStore;
@@ -239,6 +302,8 @@ export interface StoreBundle {
   events: EventStore;
   reviews: ReviewStore;
   exports: ExportStore;
+  usage: UsageStore;
+  failures: FailureStore;
 }
 
 /**
@@ -271,10 +336,19 @@ export interface EntityCandidate {
     fields: Array<{
       key: string;
       value: JsonValue | null;
+      /** Provider confidence *after* the source's trust weighting. */
       confidence: number;
-      evidence: { snippet: string; locator: string | null; method: Evidence['method'] };
+      evidence: {
+        snippet: string;
+        locator: string | null;
+        method: Evidence['method'];
+        /** Raw provider confidence, before trust. Provenance, not a score. */
+        confidence?: number;
+      };
     }>;
     signals: Array<{ key: string; detected: boolean; confidence: number; rationale: string }>;
+    /** Trust actually applied, including any self-reported override. */
+    sourceTrust?: { score: number; categoryId: string | null };
   };
   extractedBy: string;
   createdAt: string;

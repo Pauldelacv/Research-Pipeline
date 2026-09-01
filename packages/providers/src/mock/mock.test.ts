@@ -45,6 +45,7 @@ const ctx = (attempt = 1): ProviderCallContext => ({
   runId: 'run_test',
   attempt,
   logger: nullLogger,
+  recordUsage: () => {},
 });
 
 const options = { seed: 'test-seed', latencyMs: 0, failureRate: 0, deterministic: true };

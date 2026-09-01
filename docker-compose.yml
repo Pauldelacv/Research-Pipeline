@@ -4,6 +4,11 @@ name: field-research-pipeline
 # credentials: the mock providers supply the data, so nothing here reaches the
 # public internet.
 #
+# This file is for development: it publishes Postgres and Redis so you can
+# reach them from the host, seeds demo data on boot, and serves plain HTTP.
+# For a real deployment use infra/production/docker-compose.prod.yml, which
+# does none of those things — see docs/deployment.md.
+#
 #   web    :3000  operator console
 #   api    :4000  REST + SSE, applies migrations and seeds on boot
 #   worker        executes one pipeline step per queue job
@@ -64,6 +69,8 @@ services:
       BRIGHT_DATA_API_KEY: ${BRIGHT_DATA_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4.5}
     ports:
       - '4000:4000'
     volumes:
@@ -117,6 +124,10 @@ services:
       BRIGHT_DATA_UNLOCKER_ZONE: ${BRIGHT_DATA_UNLOCKER_ZONE:-web_unlocker}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4.5}
+      LLM_PRICE_INPUT_PER_MTOK: ${LLM_PRICE_INPUT_PER_MTOK:-}
+      LLM_PRICE_OUTPUT_PER_MTOK: ${LLM_PRICE_OUTPUT_PER_MTOK:-}
       HUBSPOT_ACCESS_TOKEN: ${HUBSPOT_ACCESS_TOKEN:-}
       NOTION_TOKEN: ${NOTION_TOKEN:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}

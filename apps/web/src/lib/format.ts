@@ -112,3 +112,42 @@ export function confidenceTone(confidence: number, threshold: number): Tone {
 export function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
+
+/**
+ * Money, at the scale a single provider call actually costs.
+ *
+ * A run's total is dollars; one extraction is fractions of a cent. Printing
+ * both with two decimals turns every individual call into "$0.00", which reads
+ * as free — so small figures keep enough precision to be compared, and larger
+ * ones drop it.
+ */
+export function formatCost(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined) return '—';
+  if (usd === 0) return '$0.00';
+  if (usd < 0.01) return `$${usd.toFixed(5)}`;
+  if (usd < 1) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+/** Token counts get long fast; an operator wants the magnitude. */
+export function formatTokens(count: number | null | undefined): string {
+  if (count === null || count === undefined) return '—';
+  if (count < 1_000) return String(count);
+  if (count < 1_000_000) return `${(count / 1_000).toFixed(1)}k`;
+  return `${(count / 1_000_000).toFixed(2)}M`;
+}
+
+export const FAILURE_SCOPE_LABEL: Record<string, string> = {
+  step: 'Step',
+  query: 'Query',
+  source: 'Source',
+  entity: 'Entity',
+  destination: 'Destination',
+};
+
+/** Where a stored cost figure came from, spelled out rather than implied. */
+export const COST_SOURCE_LABEL: Record<string, string> = {
+  reported: 'billed by the provider',
+  estimated: 'estimated from tokens',
+  unknown: 'not priced',
+};

@@ -1,4 +1,5 @@
 import type {
+  CostSource,
   FieldDefinition,
   ResearchPipelineConfig,
   SignalDefinition,
@@ -24,6 +25,43 @@ import type { Logger } from '../logger.js';
 
 export type ProviderKind = 'research' | 'search' | 'extraction' | 'enrichment';
 
+/**
+ * What one upstream call consumed.
+ *
+ * Providers report what they actually know and leave the rest null. A search
+ * adapter that is billed per request reports `requests` and no tokens; a model
+ * adapter reports tokens and, when the API returns one, a price. Nothing here
+ * is inferred by the caller, because a made-up token count is worse than a
+ * missing one — it looks authoritative in a cost report.
+ */
+export interface ProviderUsageReport {
+  /** Provider-specific verb: `plan`, `search`, `extract`, `fetch`. */
+  operation: string;
+  /**
+   * Overrides the provider this row is attributed to.
+   *
+   * Set only by an adapter that delegates — Bright Data fetching a page and
+   * handing the text to a model, say. Without it the model's tokens would be
+   * billed to the unlocker in the cost view, which is the one place that
+   * needs to be right.
+   */
+  provider?: string;
+  providerKind?: ProviderKind;
+  model?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  /** Upstream requests represented by this report. Defaults to 1. */
+  requests?: number;
+  costUsd?: number | null;
+  /** Where `costUsd` came from. Defaults to `unknown`, or `estimated` if set. */
+  costSource?: CostSource;
+  latencyMs?: number | null;
+  outcome?: 'success' | 'failure';
+  errorCode?: string | null;
+  /** Source id, entity id or query this call was made for. */
+  target?: string | null;
+}
+
 export interface ProviderMeta {
   id: string;
   kind: ProviderKind;
@@ -45,6 +83,15 @@ export interface ProviderCallContext {
   attempt: number;
   logger: Logger;
   signal?: AbortSignal;
+  /**
+   * Records what this call consumed.
+   *
+   * Synchronous and non-throwing on purpose: a provider must never fail — or
+   * wait on a database — because accounting failed. The pipeline buffers the
+   * reports and flushes them when the step attempt ends, so a step that dies
+   * halfway still accounts for what it spent getting there.
+   */
+  recordUsage(usage: ProviderUsageReport): void;
 }
 
 export interface Provider {

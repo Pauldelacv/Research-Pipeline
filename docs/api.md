@@ -68,18 +68,94 @@ orphans a scoring rule is rejected here rather than mid-run.
 
 ## Runs
 
-| Method | Path                   | Notes                                                |
-| ------ | ---------------------- | ---------------------------------------------------- |
-| `GET`  | `/v1/runs`             | `projectId`, `limit`, `offset`                       |
-| `GET`  | `/v1/runs/:id`         | Run, project, all nine steps, exports, entity counts |
-| `GET`  | `/v1/runs/:id/events`  | `after` (cursor), `limit`, `level`                   |
-| `GET`  | `/v1/runs/:id/sources` | Every document the run looked at                     |
-| `GET`  | `/v1/runs/:id/stream`  | **SSE**                                              |
-| `POST` | `/v1/runs/:id/cancel`  | Cooperative; steps stop between units of work        |
-| `POST` | `/v1/runs/:id/resume`  | Past the review gate                                 |
+| Method | Path                    | Notes                                                  |
+| ------ | ----------------------- | ------------------------------------------------------ |
+| `GET`  | `/v1/runs`              | `projectId`, `limit`, `offset`                         |
+| `GET`  | `/v1/runs/:id`          | Run, project, all nine steps, exports, entity counts   |
+| `GET`  | `/v1/runs/:id/events`   | `after` (cursor), `limit`, `level`                     |
+| `GET`  | `/v1/runs/:id/sources`  | Every document the run looked at, with its trust score |
+| `GET`  | `/v1/runs/:id/failures` | Recorded failures, with the provider's response        |
+| `GET`  | `/v1/runs/:id/usage`    | What the run spent — `?detail=true` adds the calls     |
+| `GET`  | `/v1/runs/:id/stream`   | **SSE**                                                |
+| `POST` | `/v1/runs/:id/cancel`   | Cooperative; steps stop between units of work          |
+| `POST` | `/v1/runs/:id/resume`   | Past the review gate                                   |
 
 `GET /v1/runs/:id` returns all nine steps, padding the ones that have not
-started, so a client can render the full pipeline from the first frame.
+started, so a client can render the full pipeline from the first frame. It also
+carries `failureCount` and `usage` totals, so the run header can show both
+without a second round trip.
+
+### Failures
+
+```http
+GET /v1/runs/:id/failures?limit=200
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "fail_…",
+      "stepId": "extract",
+      "scope": "source",
+      "attempt": 1,
+      "maxAttempts": 3,
+      "willRetry": false,
+      "code": "PROVIDER_TIMEOUT",
+      "message": "timed out fetching the page",
+      "retryable": true,
+      "provider": "openrouter",
+      "operation": "extract",
+      "targetId": "src_…",
+      "targetLabel": "https://beta.example/about",
+      "detail": { "status": 504, "authorization": "[redacted]" },
+      "createdAt": "2026-06-01T12:00:00.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+`scope` distinguishes a whole step attempt failing (`step`) from a failure the
+step _tolerated_ and carried on past (`query`, `source`, `entity`,
+`destination`) — the ones behind a `partial` step that a warning summarises in
+one sentence and nothing else explains.
+
+`detail` is the provider's response. It is redacted when it is **written**, not
+when it is displayed: credential-shaped keys and token-shaped values are
+replaced, strings and arrays bounded. A view added later cannot reintroduce a
+leak.
+
+### Usage and cost
+
+```http
+GET /v1/runs/:id/usage?detail=true
+```
+
+```json
+{
+  "runId": "run_…",
+  "totals": {
+    "requests": 34,
+    "failures": 1,
+    "inputTokens": 412000,
+    "outputTokens": 31000,
+    "costUsd": 1.42,
+    "latencyMs": 92310,
+    "partialCost": false
+  },
+  "byProvider": [
+    { "provider": "openrouter", "operation": "extract", "model": "…", "costUsd": 1.31, "…": "…" }
+  ],
+  "byStep": [{ "stepId": "extract", "costUsd": 1.31, "…": "…" }],
+  "calls": [{ "id": "usg_…", "provider": "openrouter", "costSource": "reported", "…": "…" }]
+}
+```
+
+Every row carries a `costSource`: `reported` (the provider priced the call),
+`estimated` (tokens × a price table) or `unknown`. `partialCost: true` means at
+least one call could not be priced and the total is therefore a **floor**, not
+the answer. Omit `detail` to skip the per-call rows.
 
 ### Resume
 

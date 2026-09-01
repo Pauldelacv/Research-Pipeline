@@ -8,6 +8,13 @@
       "when": 1787928667568,
       "tag": "0000_mushy_manta",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788280407476,
+      "tag": "0001_accounting_and_trust",
+      "breakpoints": true
     }
   ]
 }
