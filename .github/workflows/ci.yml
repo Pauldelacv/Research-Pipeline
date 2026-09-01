@@ -84,7 +84,13 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+
+      # Filtered to @frp/web because that is the package @playwright/test is a
+      # dependency of. `pnpm exec` at the workspace root only sees the root's
+      # own node_modules/.bin, which holds no playwright, so this step failed
+      # with 'Command "playwright" not found'. Filtering also pins the binary
+      # to the version in the lockfile rather than whatever copy is on PATH.
+      - run: pnpm --filter @frp/web exec playwright install --with-deps chromium
 
       - run: pnpm db:migrate
       - run: pnpm seed
@@ -118,9 +124,16 @@ jobs:
 
       - run: pnpm test:e2e
 
+      # Tolerant of missing logs on purpose: a failure before "Start the stack"
+      # leaves these files unwritten, and a bare `tail` then fails too, adding a
+      # second red step that draws attention away from the real one.
       - name: Service logs on failure
         if: failure()
-        run: tail -100 /tmp/api.log /tmp/worker.log /tmp/web.log
+        run: |
+          for log in /tmp/api.log /tmp/worker.log /tmp/web.log; do
+            echo "===== $log ====="
+            tail -n 100 "$log" 2>/dev/null || echo '(not written: the stack never started)'
+          done
 
       # test-results/ carries the traces and screenshots (retain-on-failure);
       # playwright-report/ is the browsable HTML summary.
