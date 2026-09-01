@@ -4,5 +4,8 @@ export * from './fields.js';
 export * from './config.js';
 export * from './pipeline.js';
 export * from './entities.js';
+export * from './sources.js';
+export * from './usage.js';
+export * from './failures.js';
 export * from './projects.js';
 export * from './api.js';

@@ -4,6 +4,8 @@ export * from './logger.js';
 export * from './concurrency.js';
 export * from './normalize.js';
 export * from './merge.js';
+export * from './trust.js';
+export * from './redact.js';
 export * from './evaluation.js';
 
 export * from './providers/types.js';

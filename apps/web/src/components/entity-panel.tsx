@@ -4,7 +4,7 @@ import { Button, Input, Meter, Mono, StatusPill, Tabs } from '@/components/ui/pr
 import { cn, confidenceTone, formatRelative, formatValue, percent, scoreTone } from '@/lib/format';
 import type { EntityDetail } from '@/lib/api';
 import { useEntity, useReview } from '@/lib/hooks';
-import type { EntityField, ResearchPipelineConfig } from '@frp/schemas';
+import type { EntityField, ResearchPipelineConfig, Source } from '@frp/schemas';
 import { useState } from 'react';
 
 /**
@@ -262,14 +262,17 @@ export function EntityPanel({
                               “{item.snippet}”
                             </p>
                             {item.source ? (
-                              <a
-                                href={item.source.url}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                className="mt-0.5 block truncate text-[10px] text-[var(--color-accent)] hover:underline"
-                              >
-                                {item.source.canonicalUrl}
-                              </a>
+                              <>
+                                <a
+                                  href={item.source.url}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  className="mt-0.5 block truncate text-[10px] text-[var(--color-accent)] hover:underline"
+                                >
+                                  {item.source.canonicalUrl}
+                                </a>
+                                <SourceTrust source={item.source} />
+                              </>
                             ) : null}
                           </li>
                         ))}
@@ -294,14 +297,17 @@ export function EntityPanel({
                   “{item.snippet}”
                 </p>
                 {item.source ? (
-                  <a
-                    href={item.source.url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="mt-1 block truncate text-[10px] text-[var(--color-accent)] hover:underline"
-                  >
-                    {item.source.canonicalUrl}
-                  </a>
+                  <>
+                    <a
+                      href={item.source.url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="mt-1 block truncate text-[10px] text-[var(--color-accent)] hover:underline"
+                    >
+                      {item.source.canonicalUrl}
+                    </a>
+                    <SourceTrust source={item.source} />
+                  </>
                 ) : null}
                 {item.locator ? (
                   <Mono className="mt-0.5 block text-[var(--color-ink-faint)]">{item.locator}</Mono>
@@ -446,5 +452,32 @@ function ScoreBreakdown({
         involved in this step.
       </p>
     </div>
+  );
+}
+
+/**
+ * How much the source behind a snippet was trusted.
+ *
+ * Shown next to the evidence rather than folded into the number above it: the
+ * confidence on the field has already been weighted by this, and an operator
+ * adjudicating a conflict needs to see *why* one source lost — "0.62" is not
+ * an argument, "0.9 from an unknown aggregator" is.
+ */
+function SourceTrust({ source }: { source: Source }) {
+  return (
+    <p className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--color-ink-faint)]">
+      <span
+        className={
+          source.trustScore >= 0.8
+            ? 'text-[var(--color-ok)]'
+            : source.trustScore >= 0.5
+              ? 'text-[var(--color-warn)]'
+              : 'text-[var(--color-danger)]'
+        }
+      >
+        trust {percent(source.trustScore)}
+      </span>
+      <span>· {source.trustCategory ?? 'no category matched'}</span>
+    </p>
   );
 }

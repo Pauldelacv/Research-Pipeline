@@ -94,6 +94,7 @@ async function main(): Promise<void> {
       logger: jobLogger,
       stepId,
       attempt,
+      maxAttempts: engine.step(stepId).maxAttempts,
     });
 
     const outcome = await engine.executeStepAttempt(ctx, stepId);

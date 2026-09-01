@@ -3,10 +3,12 @@ import type {
   EntityField,
   ExportRecord,
   PipelineStepRun,
+  ProviderUsage,
   ResearchProject,
   ResearchRun,
   Review,
   RunEvent,
+  RunFailure,
   Source,
 } from '@frp/schemas';
 import type { InferSelectModel } from 'drizzle-orm';
@@ -16,8 +18,10 @@ import type {
   exports as exportsTable,
   pipelineStepRuns,
   projects,
+  providerUsage,
   reviews,
   runEvents,
+  runFailures,
   runs,
   sources,
 } from './schema.js';
@@ -115,6 +119,8 @@ export function toSource(row: InferSelectModel<typeof sources>): Source {
     provider: row.provider,
     query: row.query,
     rank: row.rank,
+    trustScore: row.trustScore,
+    trustCategory: row.trustCategory,
     httpStatus: row.httpStatus,
     contentHash: row.contentHash,
     fetchedAt: iso(row.fetchedAt),
@@ -204,5 +210,48 @@ export function toExportRecord(row: InferSelectModel<typeof exportsTable>): Expo
     error: row.error,
     createdAt: isoRequired(row.createdAt),
     finishedAt: iso(row.finishedAt),
+  };
+}
+
+export function toProviderUsage(row: InferSelectModel<typeof providerUsage>): ProviderUsage {
+  return {
+    id: row.id,
+    runId: row.runId,
+    stepId: row.stepId ?? null,
+    provider: row.provider,
+    providerKind: row.providerKind,
+    operation: row.operation,
+    model: row.model,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    requests: row.requests,
+    costUsd: row.costUsd,
+    costSource: row.costSource as ProviderUsage['costSource'],
+    latencyMs: row.latencyMs,
+    outcome: row.outcome as ProviderUsage['outcome'],
+    errorCode: row.errorCode,
+    target: row.target,
+    createdAt: isoRequired(row.createdAt),
+  };
+}
+
+export function toRunFailure(row: InferSelectModel<typeof runFailures>): RunFailure {
+  return {
+    id: row.id,
+    runId: row.runId,
+    stepId: row.stepId,
+    scope: row.scope as RunFailure['scope'],
+    attempt: row.attempt,
+    maxAttempts: row.maxAttempts,
+    willRetry: row.willRetry,
+    code: row.code,
+    message: row.message,
+    retryable: row.retryable,
+    provider: row.provider,
+    operation: row.operation,
+    targetId: row.targetId,
+    targetLabel: row.targetLabel,
+    detail: row.detail ?? null,
+    createdAt: isoRequired(row.createdAt),
   };
 }

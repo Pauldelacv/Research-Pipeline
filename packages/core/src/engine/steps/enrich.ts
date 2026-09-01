@@ -3,7 +3,9 @@ import { mapWithConcurrency } from '../../concurrency.js';
 import { deterministicId } from '../../ids.js';
 import { canonicaliseUrl, coerceFieldValue } from '../../normalize.js';
 import type { EntityWithFields, EvidenceWrite, SourceWrite } from '../../ports/stores.js';
+import { resolveSourceTrust } from '../../trust.js';
 import type { PipelineContext, PipelineStep, StepResult } from '../types.js';
+import { recordItemFailures } from './report.js';
 
 /**
  * Fills gaps using a provider that works from an identified entity rather than
@@ -66,7 +68,7 @@ export const enrichStep: PipelineStep = {
             targetFields,
             signals: config.signals,
           },
-          { runId: ctx.runId, attempt: ctx.attempt, logger: ctx.logger, signal: ctx.signal },
+          ctx.providerCall(provider.meta, { target: entity.id }),
         );
 
         // Record the consulted sources first so evidence can reference them.
@@ -83,6 +85,7 @@ export const enrichStep: PipelineStep = {
             provider: provider.meta.id,
             query: null,
             rank: result.rank,
+            trust: resolveSourceTrust(config, { url: canonicalUrl, kind: result.kind }),
           };
         });
         if (sourceWrites.length > 0) {
@@ -142,6 +145,18 @@ export const enrichStep: PipelineStep = {
           `enrichment failed for ${(item as EntityWithFields).entity.displayName}: ` +
           `${error instanceof Error ? error.message : String(error)}`,
       );
+
+    await recordItemFailures(
+      ctx,
+      'entity',
+      failures,
+      ({ entity }) => ({
+        id: entity.id,
+        label: entity.displayName,
+        provider: provider.meta.id,
+      }),
+      'enrich',
+    );
 
     await ctx.emit({
       level: failures.length > 0 ? 'warn' : 'info',

@@ -38,11 +38,15 @@ export function registerRunRoutes(app: FastifyInstance, ctx: AppContext): void {
     const { id } = parse(idParamSchema, request.params, 'params');
     const run = await requireRun(ctx, id);
 
-    const [steps, exports, counts, project] = await Promise.all([
+    const [steps, exports, counts, project, failureCount, usage] = await Promise.all([
       listStepRuns(ctx.db, id),
       ctx.stores.exports.listByRun(id),
       ctx.stores.entities.countsByStatus(id),
       getProject(ctx.db, run.projectId, ctx.tenantId),
+      ctx.stores.failures.countByRun(id),
+      // Totals only: the per-call rows live behind /usage, so opening a run
+      // does not pay for a table nobody has asked to see yet.
+      ctx.stores.usage.summarise(id),
     ]);
 
     return {
@@ -52,6 +56,8 @@ export function registerRunRoutes(app: FastifyInstance, ctx: AppContext): void {
       exports,
       entityCounts: counts,
       pendingReview: counts.needs_review,
+      failureCount,
+      usage: usage.totals,
     };
   });
 
@@ -61,6 +67,59 @@ export function registerRunRoutes(app: FastifyInstance, ctx: AppContext): void {
     const query = parse(runEventQuerySchema, request.query, 'query');
     const events = await ctx.stores.events.list(id, query);
     return { events };
+  });
+
+  /**
+   * Failures recorded during a run.
+   *
+   * The event log tells the story of a run; this answers "what broke, on what,
+   * and what did the provider say?" without an operator opening a worker's
+   * stdout. Provider detail is already redacted at write time.
+   */
+  app.get('/v1/runs/:id/failures', async (request) => {
+    const { id } = parse(idParamSchema, request.params, 'params');
+    await requireRun(ctx, id);
+    const query = parse(
+      z.object({
+        limit: z.coerce.number().int().min(1).max(500).default(200),
+        offset: z.coerce.number().int().min(0).default(0),
+      }),
+      request.query,
+      'query',
+    );
+    const [items, total] = await Promise.all([
+      ctx.stores.failures.listByRun(id, query),
+      ctx.stores.failures.countByRun(id),
+    ]);
+    return { items, total, ...query };
+  });
+
+  /**
+   * What the run spent.
+   *
+   * The rollup is computed on read from the append-only usage rows rather than
+   * kept as a counter, so the number always matches the calls it claims to
+   * summarise. `partialCost` flags a total that is a floor because at least one
+   * call could not be priced.
+   */
+  app.get('/v1/runs/:id/usage', async (request) => {
+    const { id } = parse(idParamSchema, request.params, 'params');
+    await requireRun(ctx, id);
+    const query = parse(
+      z.object({
+        detail: z
+          .union([z.boolean(), z.enum(['true', 'false'])])
+          .optional()
+          .transform((value) => value === true || value === 'true'),
+        limit: z.coerce.number().int().min(1).max(500).default(200),
+      }),
+      request.query,
+      'query',
+    );
+
+    const summary = await ctx.stores.usage.summarise(id);
+    if (!query.detail) return { ...summary, calls: null };
+    return { ...summary, calls: await ctx.stores.usage.listByRun(id, { limit: query.limit }) };
   });
 
   app.get('/v1/runs/:id/sources', async (request) => {

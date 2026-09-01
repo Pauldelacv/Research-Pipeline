@@ -15,6 +15,8 @@ export const keys = {
   run: (id: string) => ['run', id] as const,
   runEvents: (id: string) => ['run-events', id] as const,
   runSources: (id: string) => ['run-sources', id] as const,
+  runFailures: (id: string) => ['run-failures', id] as const,
+  runUsage: (id: string) => ['run-usage', id] as const,
   entities: (runId: string, filters: EntityFilters) => ['entities', runId, filters] as const,
   entity: (id: string) => ['entity', id] as const,
 };
@@ -38,6 +40,27 @@ export const useRuns = () =>
 
 export const useRunSources = (runId: string) =>
   useQuery({ queryKey: keys.runSources(runId), queryFn: () => api.runSources(runId) });
+
+/**
+ * Failures and usage both keep accumulating while a run executes, so they poll
+ * while it is live and settle once it is not. Neither is loaded until the
+ * operator opens its tab — a healthy run should not pay for the debugging view.
+ */
+export const useRunFailures = (runId: string, options: { enabled: boolean; live: boolean }) =>
+  useQuery({
+    queryKey: keys.runFailures(runId),
+    queryFn: () => api.runFailures(runId),
+    enabled: options.enabled,
+    refetchInterval: options.live ? 6_000 : false,
+  });
+
+export const useRunUsage = (runId: string, options: { enabled: boolean; live: boolean }) =>
+  useQuery({
+    queryKey: keys.runUsage(runId),
+    queryFn: () => api.runUsage(runId),
+    enabled: options.enabled,
+    refetchInterval: options.live ? 6_000 : false,
+  });
 
 /**
  * Results for a run.

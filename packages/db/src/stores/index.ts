@@ -1,5 +1,6 @@
 import type { StoreBundle } from '@frp/core';
 import type { Database } from '../client.js';
+import { createFailureStore, createUsageStore } from './accounting.js';
 import { createEntityStore } from './entities.js';
 import {
   createCandidateStore,
@@ -21,10 +22,13 @@ export function createStores(db: Database): StoreBundle {
     events: createEventStore(db),
     reviews: createReviewStore(db),
     exports: createExportStore(db),
+    usage: createUsageStore(db),
+    failures: createFailureStore(db),
   };
 }
 
 export { createEntityStore, createProjectStore, createRunStore };
+export { createFailureStore, createUsageStore, listStepFailures } from './accounting.js';
 export {
   createCandidateStore,
   createEventStore,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { conditionSchema } from './conditions.js';
 import { fieldDefinitionSchema, targetingFieldSchema } from './fields.js';
 import { slugSchema } from './primitives.js';
+import { sourceTrustConfigSchema } from './sources.js';
 
 /**
  * A `ResearchPipelineConfig` is the single artefact a Forward Deployed Engineer
@@ -132,6 +133,9 @@ export const researchPipelineConfigSchema = z
       })
       .prefault({}),
 
+    /** How much credit each kind of document gets. See `sources.ts`. */
+    sources: z.object({ trust: sourceTrustConfigSchema }).prefault({}),
+
     extraction: z.object({
       fields: z.array(fieldDefinitionSchema).min(1),
       /** Sources extracted in parallel. Bounded to protect upstream providers. */
@@ -253,6 +257,27 @@ export const researchPipelineConfigSchema = z
         path: ['signals'],
         message: `duplicate signal key "${duplicateSignal}"`,
       });
+    }
+    const duplicateCategory = findDuplicate(config.sources.trust.categories.map((c) => c.id));
+    if (duplicateCategory) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sources', 'trust', 'categories'],
+        message: `duplicate source trust category id "${duplicateCategory}"`,
+      });
+    }
+    for (const category of config.sources.trust.categories) {
+      for (const pattern of category.patterns) {
+        try {
+          new RegExp(pattern);
+        } catch {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['sources', 'trust', 'categories'],
+            message: `category "${category.id}" has an invalid pattern: ${pattern}`,
+          });
+        }
+      }
     }
     for (const signal of config.signals) {
       if (signal.source === 'derived' && !signal.when) {

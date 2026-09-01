@@ -48,6 +48,15 @@ export const exportStep: PipelineStep = {
         warnings.push(
           `destination "${destination.id}" skipped: no connector "${destination.connector}" is registered`,
         );
+        await ctx.recordFailure({
+          scope: 'destination',
+          code: 'CONNECTOR_NOT_CONFIGURED',
+          message: `no connector "${destination.connector}" is registered`,
+          retryable: false,
+          operation: 'export',
+          targetId: destination.id,
+          targetLabel: destination.label,
+        });
         await ctx.emit({
           level: 'error',
           type: 'export.unavailable',
@@ -106,6 +115,17 @@ export const exportStep: PipelineStep = {
           error: record_.message,
         });
         warnings.push(`${destination.label} failed: ${record_.message}`);
+        await ctx.recordFailure({
+          scope: 'destination',
+          code: record_.code,
+          message: record_.message,
+          retryable: error instanceof PipelineError ? error.retryable : false,
+          provider: destination.connector,
+          operation: 'export',
+          targetId: destination.id,
+          targetLabel: destination.label,
+          detail: error instanceof PipelineError ? error.details : undefined,
+        });
         await ctx.emit({
           level: 'error',
           type: 'export.failed',

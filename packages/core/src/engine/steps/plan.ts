@@ -28,7 +28,7 @@ export const planStep: PipelineStep = {
 
     const plan: ResearchPlan = await provider.plan(
       { objective: ctx.objective, config: ctx.config, targeting: ctx.targeting },
-      { runId: ctx.runId, attempt: ctx.attempt, logger: ctx.logger, signal: ctx.signal },
+      ctx.providerCall(provider.meta, { target: ctx.objective.slice(0, 200) }),
     );
 
     const queries = plan.queries

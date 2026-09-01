@@ -3,8 +3,10 @@ import { deterministicId } from '../../ids.js';
 import { canonicaliseUrl } from '../../normalize.js';
 import type { SourceWrite } from '../../ports/stores.js';
 import type { PlannedQuery } from '../../providers/types.js';
+import { resolveSourceTrust } from '../../trust.js';
 import { mapWithConcurrency } from '../../concurrency.js';
 import type { PipelineContext, PipelineStep, StepResult } from '../types.js';
+import { recordItemFailures } from './report.js';
 
 /**
  * Executes the planned queries against the search provider and records every
@@ -13,6 +15,11 @@ import type { PipelineContext, PipelineStep, StepResult } from '../types.js';
  * Sources are stored before anything is extracted from them. That ordering is
  * what makes the run auditable: even a run that fails during extraction leaves
  * behind the exact list of documents it was looking at.
+ *
+ * Each source is also scored against the pipeline's trust configuration as it
+ * is recorded. Resolving trust here rather than at extraction time means the
+ * verdict is stored next to the document it judges, and stays inspectable long
+ * after the confidence it modified has been merged away.
  */
 export const discoverStep: PipelineStep = {
   id: 'discover',
@@ -33,6 +40,7 @@ export const discoverStep: PipelineStep = {
     const { maxResults, resultsPerQuery } = ctx.config.discovery;
     const seen = new Set<string>();
     const collected: SourceWrite[] = [];
+    const trustCounts = new Map<string, number>();
     let providerCalls = 0;
 
     const { failures } = await mapWithConcurrency(
@@ -48,7 +56,7 @@ export const discoverStep: PipelineStep = {
             source: query.source,
             limit: Math.min(resultsPerQuery, maxResults),
           },
-          { runId: ctx.runId, attempt: ctx.attempt, logger: ctx.logger, signal: ctx.signal },
+          ctx.providerCall(provider.meta, { target: query.query }),
         );
 
         for (const result of results) {
@@ -56,6 +64,14 @@ export const discoverStep: PipelineStep = {
           const canonicalUrl = canonicaliseUrl(result.url);
           if (!canonicalUrl || seen.has(canonicalUrl)) continue;
           seen.add(canonicalUrl);
+          const trust = resolveSourceTrust(ctx.config, {
+            url: canonicalUrl,
+            kind: result.kind,
+          });
+          trustCounts.set(
+            trust.categoryId ?? 'uncategorised',
+            (trustCounts.get(trust.categoryId ?? 'uncategorised') ?? 0) + 1,
+          );
           collected.push({
             // Deterministic: re-running discover re-derives the same ids and
             // the upsert becomes a no-op rather than a duplicate.
@@ -69,6 +85,7 @@ export const discoverStep: PipelineStep = {
             provider: provider.meta.id,
             query: query.query,
             rank: result.rank,
+            trust,
           });
         }
 
@@ -102,11 +119,24 @@ export const discoverStep: PipelineStep = {
         `query "${(item as PlannedQuery).query}" failed: ${error instanceof Error ? error.message : String(error)}`,
     );
 
+    await recordItemFailures(
+      ctx,
+      'query',
+      failures,
+      (query) => ({ id: query.id, label: query.query, provider: provider.meta.id }),
+      'search',
+    );
+
     await ctx.emit({
       level: warnings.length > 0 ? 'warn' : 'info',
       type: 'discover.completed',
       message: `${inserted} sources discovered (${skipped} already known)`,
-      data: { inserted, skipped, failedQueries: failures.length },
+      data: {
+        inserted,
+        skipped,
+        failedQueries: failures.length,
+        trust: Object.fromEntries(trustCounts),
+      },
     });
 
     return {

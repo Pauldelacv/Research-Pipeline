@@ -155,6 +155,13 @@ export const sources = pgTable(
     provider: text('provider').notNull(),
     query: text('query'),
     rank: integer('rank'),
+    /**
+     * Trust resolved from the pipeline configuration when the source was
+     * recorded. Stored rather than recomputed so a historical run keeps the
+     * verdict it actually acted on, even after the configuration changes.
+     */
+    trustScore: real('trust_score').notNull().default(0.5),
+    trustCategory: text('trust_category'),
     httpStatus: integer('http_status'),
     contentHash: text('content_hash'),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
@@ -348,6 +355,79 @@ export const exports = pgTable(
   (table) => [index('exports_run_idx').on(table.runId, table.createdAt)],
 );
 
+/**
+ * One row per upstream provider call.
+ *
+ * Append-only and never updated: a run's cost is the sum of what it did, and
+ * a row that can be edited is a number nobody can defend. Aggregation happens
+ * on read — runs are bounded and the index makes the rollup cheap.
+ */
+export const providerUsage = pgTable(
+  'provider_usage',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    stepId: text('step_id').$type<StepId>(),
+    provider: text('provider').notNull(),
+    providerKind: text('provider_kind').notNull(),
+    operation: text('operation').notNull(),
+    model: text('model'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    requests: integer('requests').notNull().default(1),
+    /** Nullable on purpose: an unpriced call is not a free call. */
+    costUsd: real('cost_usd'),
+    costSource: text('cost_source').notNull().default('unknown'),
+    latencyMs: integer('latency_ms'),
+    outcome: text('outcome').notNull().default('success'),
+    errorCode: text('error_code'),
+    target: text('target'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('provider_usage_run_idx').on(table.runId, table.createdAt),
+    index('provider_usage_run_provider_idx').on(table.runId, table.provider, table.operation),
+  ],
+);
+
+/**
+ * Failures worth showing an operator, at a finer grain than the step row.
+ *
+ * A step that reports `partial` swallowed something; these are the rows that
+ * say what. `detail` holds the sanitised provider response — the single most
+ * useful field when debugging a run, redacted before it is written rather
+ * than before it is displayed.
+ */
+export const runFailures = pgTable(
+  'run_failures',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    stepId: text('step_id').$type<StepId>().notNull(),
+    scope: text('scope').notNull().default('step'),
+    attempt: integer('attempt').notNull().default(1),
+    maxAttempts: integer('max_attempts').notNull().default(1),
+    willRetry: boolean('will_retry').notNull().default(false),
+    code: text('code').notNull(),
+    message: text('message').notNull(),
+    retryable: boolean('retryable').notNull().default(false),
+    provider: text('provider'),
+    operation: text('operation'),
+    targetId: text('target_id'),
+    targetLabel: text('target_label'),
+    detail: jsonb('detail').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('run_failures_run_idx').on(table.runId, table.createdAt),
+    index('run_failures_run_step_idx').on(table.runId, table.stepId),
+  ],
+);
+
 export const runEvents = pgTable(
   'run_events',
   {
@@ -383,6 +463,8 @@ export const runRelations = relations(runs, ({ one, many }) => ({
   sources: many(sources),
   entities: many(entities),
   events: many(runEvents),
+  usage: many(providerUsage),
+  failures: many(runFailures),
 }));
 
 export const entityRelations = relations(entities, ({ one, many }) => ({

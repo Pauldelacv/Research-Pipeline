@@ -68,7 +68,10 @@ export const structureStep: PipelineStep = {
             sourceId: candidate.sourceId,
             snippet: field.evidence.snippet,
             locator: field.evidence.locator,
-            confidence: field.confidence,
+            // The extractor's own confidence, not the trust-weighted one: the
+            // evidence row answers "how sure was the extractor?", and folding
+            // the source's reputation into it would erase the distinction.
+            confidence: field.evidence.confidence ?? field.confidence,
             method: field.evidence.method,
           },
         ],

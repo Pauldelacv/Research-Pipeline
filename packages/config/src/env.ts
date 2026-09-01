@@ -45,6 +45,23 @@ export const envSchema = z.object({
   LLM_MODEL: z.string().default('claude-opus-5'),
   LLM_BASE_URL: z.string().optional(),
 
+  // OpenRouter fronts many vendors behind one OpenAI-compatible endpoint, so
+  // the model id carries the vendor (`anthropic/…`, `openai/…`, `google/…`).
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default('anthropic/claude-sonnet-4.5'),
+  OPENROUTER_BASE_URL: z.string().default('https://openrouter.ai/api/v1'),
+  /** Optional attribution, shown on OpenRouter's app rankings. */
+  OPENROUTER_SITE_URL: z.string().optional(),
+  OPENROUTER_APP_NAME: z.string().default('field-research-pipeline'),
+
+  /**
+   * Overrides the built-in price table for whichever model this deployment
+   * runs. Published prices move; a wrong estimate is worse than an explicit
+   * one, so a deployment that cares about cost accuracy sets these.
+   */
+  LLM_PRICE_INPUT_PER_MTOK: z.coerce.number().min(0).optional(),
+  LLM_PRICE_OUTPUT_PER_MTOK: z.coerce.number().min(0).optional(),
+
   EXPORT_DIR: z.string().default('./var/exports'),
 });
 

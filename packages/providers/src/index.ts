@@ -6,6 +6,7 @@ import {
   BrightDataSearchProvider,
 } from './bright-data/index.js';
 import { LlmExtractionProvider, LlmResearchProvider } from './llm/index.js';
+import { OpenRouterExtractionProvider, OpenRouterResearchProvider } from './openrouter/index.js';
 import {
   MockEnrichmentProvider,
   MockExtractionProvider,
@@ -47,10 +48,31 @@ export function createProviderRegistry(
     .register(mockExtraction.meta, () => mockExtraction)
     .register(mockEnrichment.meta, () => mockEnrichment);
 
+  // A deployment that sets the price overrides means them for whichever model
+  // it actually runs, so both model adapters read the same pair.
+  const priceOverride = {
+    ...(config.LLM_PRICE_INPUT_PER_MTOK !== undefined
+      ? { inputPerMTok: config.LLM_PRICE_INPUT_PER_MTOK }
+      : {}),
+    ...(config.LLM_PRICE_OUTPUT_PER_MTOK !== undefined
+      ? { outputPerMTok: config.LLM_PRICE_OUTPUT_PER_MTOK }
+      : {}),
+  };
+
   const llmOptions = {
     apiKey: config.ANTHROPIC_API_KEY ?? '',
     model: config.LLM_MODEL,
+    price: priceOverride,
     ...(config.LLM_BASE_URL ? { baseUrl: config.LLM_BASE_URL } : {}),
+  };
+
+  const openRouterOptions = {
+    apiKey: config.OPENROUTER_API_KEY ?? '',
+    model: config.OPENROUTER_MODEL,
+    baseUrl: config.OPENROUTER_BASE_URL,
+    appName: config.OPENROUTER_APP_NAME,
+    price: priceOverride,
+    ...(config.OPENROUTER_SITE_URL ? { siteUrl: config.OPENROUTER_SITE_URL } : {}),
   };
 
   registry.register(
@@ -73,6 +95,32 @@ export function createProviderRegistry(
       requiresCredentials: true,
     },
     () => new LlmExtractionProvider(llmOptions),
+  );
+
+  registry.register(
+    {
+      id: 'openrouter',
+      kind: 'research',
+      label: 'OpenRouter research planner',
+      description:
+        `Query planning through any OpenRouter model (currently ${config.OPENROUTER_MODEL}). ` +
+        'Requires OPENROUTER_API_KEY.',
+      requiresCredentials: true,
+    },
+    () => new OpenRouterResearchProvider(openRouterOptions),
+  );
+
+  registry.register(
+    {
+      id: 'openrouter',
+      kind: 'extraction',
+      label: 'OpenRouter extraction',
+      description:
+        `Schema-constrained extraction with evidence via ${config.OPENROUTER_MODEL}. ` +
+        'Requires OPENROUTER_API_KEY.',
+      requiresCredentials: true,
+    },
+    () => new OpenRouterExtractionProvider(openRouterOptions),
   );
 
   const brightDataOptions = {
@@ -104,8 +152,13 @@ export function createProviderRegistry(
     () => {
       // Retrieval is Bright Data's job; interpretation stays with whichever
       // provider can read text. Falling back to mock would fabricate data, so
-      // the LLM provider is required and fails loudly when unconfigured.
-      const delegate: ExtractionProvider = new LlmExtractionProvider(llmOptions);
+      // a model provider is required and fails loudly when unconfigured.
+      // Anthropic wins when both are configured; OpenRouter covers the
+      // deployment that only has an OpenRouter key.
+      const delegate: ExtractionProvider =
+        !config.ANTHROPIC_API_KEY && config.OPENROUTER_API_KEY
+          ? new OpenRouterExtractionProvider(openRouterOptions)
+          : new LlmExtractionProvider(llmOptions);
       return new BrightDataExtractionProvider(brightDataOptions, delegate);
     },
   );
@@ -126,4 +179,6 @@ export function createProviderRegistry(
 
 export * from './mock/index.js';
 export * from './llm/index.js';
+export * from './openrouter/index.js';
 export * from './bright-data/index.js';
+export * from './pricing.js';

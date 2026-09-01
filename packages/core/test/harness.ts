@@ -5,12 +5,17 @@ import type {
   ExportRecord,
   Paginated,
   PipelineStepRun,
+  ProviderUsage,
   ResearchPipelineConfig,
   ResearchProject,
   ResearchRun,
   Review,
   RunEvent,
+  RunFailure,
+  RunUsageSummary,
   Source,
+  UsageBreakdownRow,
+  UsageTotals,
 } from '@frp/schemas';
 import { PIPELINE_STEP_ORDER } from '@frp/schemas';
 import { ConnectorRegistry } from '../src/ports/connectors.js';
@@ -22,6 +27,7 @@ import type {
   EntityWrite,
   EventStore,
   ExportStore,
+  FailureStore,
   ProjectStore,
   ReviewStore,
   RunPublisher,
@@ -29,6 +35,8 @@ import type {
   SourceStore,
   SourceWrite,
   StoreBundle,
+  UsageStore,
+  UsageWrite,
 } from '../src/ports/stores.js';
 import { nullLogger } from '../src/logger.js';
 import { newId } from '../src/ids.js';
@@ -52,6 +60,8 @@ export function createMemoryStores(): StoreBundle & { snapshot(): MemoryState } 
     events: [],
     reviews: [],
     exports: [],
+    usage: [],
+    failures: [],
   };
 
   const runs: RunStore = {
@@ -143,8 +153,11 @@ export function createMemoryStores(): StoreBundle & { snapshot(): MemoryState } 
       let inserted = 0;
       for (const item of items) {
         if (state.sources.has(item.id)) continue;
+        const { trust, ...rest } = item;
         state.sources.set(item.id, {
-          ...item,
+          ...rest,
+          trustScore: trust.score,
+          trustCategory: trust.categoryId,
           httpStatus: null,
           contentHash: null,
           fetchedAt: null,
@@ -385,6 +398,80 @@ export function createMemoryStores(): StoreBundle & { snapshot(): MemoryState } 
     },
   };
 
+  const usage: UsageStore = {
+    async recordMany(entries: UsageWrite[]) {
+      for (const entry of entries) {
+        state.usage.push({
+          ...entry,
+          id: newId('usg'),
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return entries.length;
+    },
+    async listByRun(runId) {
+      return state.usage.filter((row) => row.runId === runId);
+    },
+    async summarise(runId): Promise<RunUsageSummary> {
+      const rows = state.usage.filter((row) => row.runId === runId);
+      const group = (key: (row: ProviderUsage) => string): UsageBreakdownRow[] => {
+        const buckets = new Map<string, UsageBreakdownRow>();
+        for (const row of rows) {
+          const id = key(row);
+          const bucket = buckets.get(id) ?? {
+            provider: row.provider,
+            providerKind: row.providerKind,
+            operation: row.operation,
+            model: row.model,
+            stepId: row.stepId,
+            ...emptyTotals(),
+          };
+          bucket.requests += row.requests;
+          bucket.failures += row.outcome === 'failure' ? 1 : 0;
+          bucket.inputTokens += row.inputTokens ?? 0;
+          bucket.outputTokens += row.outputTokens ?? 0;
+          bucket.costUsd += row.costUsd ?? 0;
+          bucket.latencyMs += row.latencyMs ?? 0;
+          bucket.partialCost ||= row.costUsd === null;
+          buckets.set(id, bucket);
+        }
+        return [...buckets.values()];
+      };
+
+      const byProvider = group((row) => `${row.provider}|${row.operation}|${row.model ?? ''}`);
+      const totals = byProvider.reduce<UsageTotals>((acc, row) => {
+        acc.requests += row.requests;
+        acc.failures += row.failures;
+        acc.inputTokens += row.inputTokens;
+        acc.outputTokens += row.outputTokens;
+        acc.costUsd += row.costUsd;
+        acc.latencyMs += row.latencyMs;
+        acc.partialCost ||= row.partialCost;
+        return acc;
+      }, emptyTotals());
+
+      return { runId, totals, byProvider, byStep: group((row) => row.stepId ?? 'none') };
+    },
+  };
+
+  const failures: FailureStore = {
+    async record(failure) {
+      const record: RunFailure = {
+        ...failure,
+        id: newId('fail'),
+        createdAt: new Date().toISOString(),
+      };
+      state.failures.push(record);
+      return record;
+    },
+    async listByRun(runId) {
+      return state.failures.filter((failure) => failure.runId === runId);
+    },
+    async countByRun(runId) {
+      return state.failures.filter((failure) => failure.runId === runId).length;
+    },
+  };
+
   return {
     projects,
     runs,
@@ -394,6 +481,8 @@ export function createMemoryStores(): StoreBundle & { snapshot(): MemoryState } 
     events,
     reviews,
     exports,
+    usage,
+    failures,
     snapshot: () => state,
   };
 }
@@ -409,7 +498,21 @@ export interface MemoryState {
   events: RunEvent[];
   reviews: Review[];
   exports: ExportRecord[];
+  usage: ProviderUsage[];
+  failures: RunFailure[];
   cancelled?: string;
+}
+
+function emptyTotals(): UsageTotals {
+  return {
+    requests: 0,
+    failures: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    latencyMs: 0,
+    partialCost: false,
+  };
 }
 
 export const recordingPublisher = (): RunPublisher & { messages: unknown[] } => {
