@@ -153,6 +153,29 @@ export function useLiveRun(runId: string): LiveRun {
   const status = query.data?.run.status;
   const isTerminal = status ? ['completed', 'failed', 'cancelled'].includes(status) : false;
 
+  // Refetch the run-scoped collections whenever the run changes state.
+  //
+  // Entities, sources, failures and usage all poll only while the run is
+  // active, which means their polling stops at the exact moment the final rows
+  // land. A run that settles between two ticks — the mock providers finish the
+  // whole pipeline in a couple of seconds — would otherwise leave every one of
+  // those tables showing whatever it held mid-run, with no later event to
+  // correct it: the results table sat on "No results match these filters"
+  // while the tab beside it counted 47 companies. A status transition is
+  // precisely when that stale view needs one more read.
+  const previousStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!status) return;
+    const changed = previousStatus.current !== undefined && previousStatus.current !== status;
+    previousStatus.current = status;
+    if (!changed) return;
+
+    void client.invalidateQueries({ queryKey: ['entities', runId] });
+    void client.invalidateQueries({ queryKey: keys.runSources(runId) });
+    void client.invalidateQueries({ queryKey: keys.runFailures(runId) });
+    void client.invalidateQueries({ queryKey: keys.runUsage(runId) });
+  }, [status, runId, client]);
+
   // Backfill the timeline once, then let the stream append to it.
   useEffect(() => {
     let cancelled = false;
